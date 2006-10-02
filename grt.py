@@ -5,10 +5,16 @@ import pygame
 import os.path, random, math
 from itertools import chain
 
+try:
+    import psyco
+    psyco.full()
+except:
+    pass
+
 VERSION = 0.1
 WIDTH, HEIGHT = (1024, 768)
 MAX_FPS = 45
-FLAGS = 0 #pygame.FULLSCREEN
+FLAGS = pygame.FULLSCREEN
 SOUND = True
 
 pygame.init()
@@ -524,10 +530,13 @@ class Caption(Sprite):
 class Level(object):
     def __init__(self):
         self.restart()
-    def restart(self):
+    def restart(self, skip_tutorial = False):
         self.sprites = []
         self.captions = []
-        self.wave = -5
+        if skip_tutorial:
+            self.wave = 0
+        else:
+            self.wave = -5
         self.delayed_captions = {}
         self.wave_frames = 0
         self.min_wave_time = 0
@@ -538,10 +547,11 @@ class Level(object):
         self.pause = False
         for player in players:
             player.reset()
-        play_music(random.choice(['solitude', 'perfect']))
+        #play_music(random.choice(['solitude', 'perfect']))
+        play_music('GibIt-PleaseDontEatTheSparrow')
     def restart_or_pause(self):
         if self.game_over:
-            self.restart()
+            self.restart(skip_tutorial = True)
         elif self.wave < 1:
             self.wave = 0
             self.sprites = players[:]
