@@ -18,6 +18,8 @@ FLAGS = pygame.FULLSCREEN
 SOUND = True
 
 pygame.init()
+if not pygame.mixer.get_init():
+    SOUND = False
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.DOUBLEBUF | FLAGS)
 pygame.mouse.set_visible(False)
 font = pygame.font.Font(os.path.join('data', 'Titania-Regular.ttf'), 36)
@@ -272,11 +274,6 @@ class Player(Sprite):
             bullet.x += bullet.delta_x
             bullet.y += bullet.delta_y
             bullet.owner = self
-            muzzle = MuzzleDamage()
-            muzzle.move(bullet)
-            muzzle.delta_x = dx
-            muzzle.delta_y = dx
-            muzzle.spawn()
             if dy == 0:
                 bullet.frame = 0
             elif dx == 0:
@@ -295,7 +292,7 @@ class Player(Sprite):
         spray.spawn()
         self.remove = True
         self.respawn_delay = seconds(1)
-        if not self.machines_remaining:
+        if self.machines_remaining == 0:
             stop_music()
             level.game_over = True
     def score_text(self):
@@ -306,11 +303,13 @@ class Bullet(Sprite):
         self.set_image(images['bullet'])
         self.delta_x = 0
         self.delta_y = 0
-        self.square_radius = 8 ** 2
+        self.square_radius = 64 ** 2
+        self.radius_coefficent = 0.5
         self.owner = None
     def update(self):
         self.x += self.delta_x
         self.y += self.delta_y
+        self.square_radius *= self.radius_coefficent
         self.cull()
         if random.randrange(8) == 0:
             spark = Spark()
@@ -319,14 +318,6 @@ class Bullet(Sprite):
 
 class GoodBullet(Bullet):
     pass
-
-class MuzzleDamage(GoodBullet):
-    def initialize(self):
-        self.square_radius = 32 ** 2
-        self.life = 1
-        self.visible = False
-    def update(self):
-        self.decrease_life()
 
 class BadBullet(Bullet):
     pass
