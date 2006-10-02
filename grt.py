@@ -22,8 +22,7 @@ if not pygame.mixer.get_init():
     SOUND = False
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.DOUBLEBUF | FLAGS)
 pygame.mouse.set_visible(False)
-font = pygame.font.Font(os.path.join('data', 'Titania-Regular.ttf'), 36)
-caption_font = pygame.font.Font(os.path.join('data', 'Titania-Regular.ttf'), 48)
+small_font, font, caption_font = [pygame.font.Font(os.path.join('data', 'Titania-Regular.ttf'), s) for s in [32, 36, 48]]
 
 def seconds(sec):
     return int(sec * MAX_FPS)
@@ -75,7 +74,7 @@ keymap_alts = [{ pygame.K_e: move_up,
 
 ######################################################################
 
-image_names = ['grass', 'dark', 'player', 'bullet', 'spark', 'bigspark', 'wisp', 'fairy', 'machine', 'pickup']
+image_names = ['grass', 'dark', 'player', 'bullet', 'spark', 'bigspark', 'wisp', 'fairy', 'machine', 'pickup', 'eights']
 
 images = {}
 
@@ -99,11 +98,31 @@ def play_sound(name):
 
 ######################################################################
 
+songs = { 'sparrow': "GibIt - Please, Don't Eat The Sparrow",
+          'solitude': 'GibIt - Solitude of a Shapeless Outcast',
+          'perfect': 'GibIt - "Perfect"' }
+
 def play_music(song):
     if SOUND:
         pygame.mixer.music.stop()
         pygame.mixer.music.load(os.path.join('data', song + '.ogg'))
         pygame.mixer.music.play(-1)
+        songname = Caption(song, small_font)
+        w = songname.image.get_width()
+        x = WIDTH - w - 4
+        songname.target_x = x
+        songname.target_y = HEIGHT - 40
+        songname.displace_x = w + 40
+        songname.special = True
+        songname.life = seconds(7.5)
+        songname.spawn()
+        notes = Caption(images['eights'])
+        notes.special = True
+        notes.target_x = x - 40
+        notes.displace_x = w + 40
+        notes.target_y = HEIGHT - 40
+        notes.life = seconds(7.5)
+        notes.spawn()
 
 def stop_music():
     if SOUND:
@@ -256,8 +275,8 @@ class Player(Sprite):
             if self.continuous_fire:
                 diff = abs((self.old_fire_x + self.old_fire_y) - (dx_param + dy_param))
             if self.continuous_fire and diff == 1:
-                dx = (self.old_fire_x + dx_param) / 2.0
-                dy = (self.old_fire_y + dy_param) / 2.0
+                dx = (self.old_fire_x + dx_param) / 3.0
+                dy = (self.old_fire_y + dy_param) / 3.0
             else:
                 dx = dx_param
                 dy = dy_param
@@ -487,9 +506,14 @@ class Pickup(Sprite):
         big_spark_sphere(self, 7, 7)
 
 class Caption(Sprite):
-    def initialize(self, text):
-        self.image = caption_font.render(text, True, (255,255,255))
-        self.shadow = caption_font.render(text, True, (0,0,0))
+    def initialize(self, text, font = caption_font):
+        self.special = False
+        if isinstance(text, pygame.Surface):
+            self.image = text
+            self.shadow = None
+        else:
+            self.image = font.render(text, True, (255,255,255))
+            self.shadow = font.render(text, True, (0,0,0))
         self.life = seconds(3)
         self.center_at(HEIGHT / 2)
         self.displace_x = 0
@@ -505,7 +529,8 @@ class Caption(Sprite):
         self.target_y = self.y
     def draw(self):
         if self.visible and not self.remove:
-            screen.blit(self.shadow, (self.x + 3, self.y + 3))
+            if self.shadow:
+                screen.blit(self.shadow, (self.x + 3, self.y + 3))
             screen.blit(self.image, (self.x, self.y))
     def update(self):
         self.displace_x *= 0.92
@@ -520,14 +545,16 @@ class Caption(Sprite):
 
 class Level(object):
     def __init__(self):
-        self.restart()
+        pass
     def restart(self, skip_tutorial = False):
         self.sprites = []
         self.captions = []
         if skip_tutorial:
             self.wave = 0
+            play_music(random.choice(songs.values()))
         else:
             self.wave = -5
+            play_music(songs['sparrow'])
         self.delayed_captions = {}
         self.wave_frames = 0
         self.min_wave_time = 0
@@ -539,7 +566,6 @@ class Level(object):
         for player in players:
             player.reset()
         #play_music(random.choice(['solitude', 'perfect']))
-        play_music('GibIt-PleaseDontEatTheSparrow')
     def restart_or_pause(self):
         if self.game_over:
             self.restart(skip_tutorial = True)
@@ -557,7 +583,7 @@ class Level(object):
     def new_wave(self):
         self.wave += 1
         if not self.game_over:
-            self.captions = []
+            self.captions = [c for c in self.captions if c.special]
         self.delayed_captions = {}
         self.wave_frames = 0
         if self.wave > 1 and not self.game_over:
@@ -660,6 +686,7 @@ class Level(object):
 
 players = [Player()]
 level = Level()
+level.restart()
 #level.sprites += players
 
 ######################################################################
