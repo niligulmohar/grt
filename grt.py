@@ -14,7 +14,7 @@ except:
 VERSION = 0.1
 WIDTH, HEIGHT = (1024, 768)
 MAX_FPS = 45
-FLAGS = pygame.FULLSCREEN
+FLAGS = 0 #pygame.FULLSCREEN
 SOUND = True
 
 pygame.init()
@@ -22,7 +22,11 @@ if not pygame.mixer.get_init():
     SOUND = False
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.DOUBLEBUF | FLAGS)
 pygame.mouse.set_visible(False)
-small_font, font, caption_font = [pygame.font.Font(os.path.join('data', 'Titania-Regular.ttf'), s) for s in [32, 36, 48]]
+
+def make_font(name, size):
+    return pygame.font.Font(os.path.join('data', name + '.ttf'), size)
+
+small_font, font, caption_font = (make_font('Titania-Regular', size) for size in (32, 36, 48))
 
 def seconds(sec):
     return int(sec * MAX_FPS)
@@ -32,6 +36,11 @@ def seconds(sec):
 class Button(object):
     def __init__(self):
         self.state = False
+        self.last_push_time = -1000
+    def set(self, state):
+        self.state = state
+        if state:
+            self.last_push_time = pygame.time.get_ticks()
     def __call__(self):
         return self.state
 
@@ -74,7 +83,19 @@ keymap_alts = [{ pygame.K_e: move_up,
 
 ######################################################################
 
-image_names = ['grass', 'dark', 'player', 'bullet', 'spark', 'bigspark', 'wisp', 'fairy', 'machine', 'pickup', 'eights']
+image_names = ['grass',
+               'dark',
+               'player',
+               'bullet',
+               'spark',
+               'bigspark',
+               'wisp',
+               'fairy',
+               'machine',
+               'pickup',
+               'eights',
+               'target',
+               'bomb']
 
 images = {}
 
@@ -84,7 +105,13 @@ for name in image_names:
 
 ######################################################################
 
-sound_names = ['poof', 'whap', 'boom']
+sound_names = ['poof',
+               'whap',
+               'boom',
+               'snare',
+               'boohm',
+               'blippiblipp',
+               'gong']
 
 sounds = {}
 
@@ -126,7 +153,7 @@ def play_music(song):
 
 def stop_music():
     if SOUND:
-        pygame.mixer.music.fadeout(5000)
+        pygame.mixer.music.fadeout(2000)
 
 ######################################################################
 
@@ -206,8 +233,7 @@ class Sprite(object):
         if self.life == 0:
             self.remove = True
     def random_position(self):
-        self.x = random.randrange(self.X_MARGIN, WIDTH - self.X_MARGIN)
-        self.y = random.randrange(self.Y_MARGIN, HEIGHT - self.Y_MARGIN)
+        self.x, self.y = level.random_position()
         self.clamp_position()
     def nearest_player(self):
         living_players = [p for p in players if p.hittable()]
@@ -216,11 +242,13 @@ class Sprite(object):
         else:
             return None
 
-def big_spark_spray(ref, amount, speed0, speed1):
+def big_spark_spray(ref, amount, speed0, speed1, pos = None):
+    if not pos:
+        pos = ref
     for i in xrange(amount):
         for n in (-1.0, 1.0):
             spark = BigSpark()
-            spark.move(ref)
+            spark.move(pos)
             spark.delta_x = (-n*ref.delta_y + (random.random()-0.5) * speed0) * speed1
             spark.delta_y = (n*ref.delta_x + (random.random()-0.5) * speed0) * speed1
             spark.spawn()
@@ -239,9 +267,10 @@ def big_spark_sphere(ref, amount, speed):
 class Player(Sprite):
     SPEED = 5
     BULLET_SPEED = 24
-    X_MARGIN = 13
-    Y_MARGIN = 22
+    X_MARGIN = 10
+    Y_MARGIN = 23
     FIRE_DELAY = 4
+    BOMB_DELAY = seconds(2)
 
     def initialize(self):
         self.set_image(images['player'])
@@ -250,6 +279,8 @@ class Player(Sprite):
         self.machines_remaining = 3
         self.respawn_delay = seconds(2)
         self.invulnerability_delay = 0
+        self.fire_delay = 0
+        self.bomb_delay = 0
         self.remove = True
         self.continuous_fire = False
     def respawn(self):
@@ -260,6 +291,8 @@ class Player(Sprite):
         self.remove = False
         self.invulnerability_delay = seconds(3)
         self.maybe_spawn()
+        self.bomb_delay = 0
+        self.bomb()
     def hittable(self):
         return self.invulnerability_delay == 0 and not self.remove
     def update(self):
@@ -270,6 +303,17 @@ class Player(Sprite):
             self.fire_delay -= 1
         else:
             self.continuous_fire = False
+        if self.bomb_delay:
+            self.bomb_delay -= 1
+    def bomb(self):
+        if self.bomb_delay == 0:
+            play_sound('boohm')
+            bullet = BombBlast()
+            bullet.move(self)
+            bullet.owner = self
+            bullet.spawn()
+            self.bomb_delay = self.BOMB_DELAY
+
     def fire(self, dx_param, dy_param):
         if not self.fire_delay:
             if self.continuous_fire:
@@ -325,6 +369,7 @@ class Bullet(Sprite):
         self.square_radius = 64 ** 2
         self.radius_coefficent = 0.5
         self.owner = None
+        self.perish = True
     def update(self):
         self.x += self.delta_x
         self.y += self.delta_y
@@ -340,6 +385,21 @@ class GoodBullet(Bullet):
 
 class BadBullet(Bullet):
     pass
+
+class BombBlast(GoodBullet):
+    SQUARE_BOMB_RADIUS = 256 ** 2
+    def initialize(self):
+        self.set_image(images['bomb'])
+        self.square_radius = self.SQUARE_BOMB_RADIUS
+        angle = random.uniform(0, math.pi * 2)
+        self.delta_x = Player.BULLET_SPEED * math.cos(angle)
+        self.delta_y = Player.BULLET_SPEED * math.sin(angle)
+        self.life = 12 + 1
+        self.perish = False
+    def update(self):
+        self.decrease_life()
+        self.frame = 4 - self.life/ 3
+        self.cull()
 
 class Spark(Sprite):
     def initialize(self):
@@ -378,12 +438,13 @@ class Enemy(Sprite):
         self.random_position()
         self.square_radius = 16 ** 2
         self.value = 0
+        self.hittable = True
+        self.crashable = True
     def explode(self, bullet):
         self.remove = True
         bullet.owner.score += self.value
-        big_spark_spray(bullet, 20, 32, 0.5)
-        play_sound('whap')
-
+        big_spark_spray(bullet, 20, 32, 0.5, self)
+        play_sound('snare')
 
 class ProtoGrunt(Enemy):
     SPEED = 2.5
@@ -391,9 +452,7 @@ class ProtoGrunt(Enemy):
     FAST_DISTANCE = 200 ** 2
     PHASE_CYCLE = 10
     def initialize(self):
-        self.set_image(images['fairy'])
-        self.random_position()
-        self.square_radius = 16 ** 2
+        Enemy.initialize(self)
         self.direction = random.random() * 2 * math.pi
         self.delta_direction = random.random() * 0.02
         self.idle_speed = random.random() * self.SPEED
@@ -405,7 +464,7 @@ class ProtoGrunt(Enemy):
         else:
             self.value = 0
     def set_follow_delay(self):
-        self.follow_delay = random.randrange(125)
+        self.follow_delay = random.randrange(seconds(3)) + seconds(1)
     def update(self):
         player = self.nearest_player()
         if self.follow_delay:
@@ -455,12 +514,13 @@ class RotatingSpray(Sprite):
             big_spark_sphere(self, 50, self.SPARK_SPEED)
         self.decrease_life()
 
-class Wisp(Sprite):
-    X_MARGIN = 75
-    Y_MARGIN = 75
+class Wisp(Enemy):
+    X_MARGIN = 48
+    Y_MARGIN = 48
     def initialize(self, enemy_class):
+        Enemy.initialize(self)
         self.set_image(images['wisp'])
-        self.random_position()
+        self.crashable = False
         self.target_x = self.x
         self.target_y = self.y
         self.phase0 = random.random() * 2 * math.pi
@@ -469,8 +529,13 @@ class Wisp(Sprite):
         self.delta_phase1 = (random.random() - 0.5) * 0.05
         self.frame_phase = random.randrange(4)
         self.life = 250 + random.randrange(25)
+        self.preview_time = seconds(1)
         self.visible = False
         self.enemy_class = enemy_class
+        if level.wave > 0:
+            self.value = 50
+        else:
+            self.value = 0
     def update(self):
         if not self.visible:
             if random.randrange(10) == 0:
@@ -485,14 +550,19 @@ class Wisp(Sprite):
             spark.move(self)
             spark.spawn()
         self.decrease_life()
-        if self.remove:
+        if self.life == 0:
             enemy = self.enemy_class()
             enemy.move(self)
             enemy.spawn()
             play_sound('poof')
             big_spark_sphere(self, 5, 7)
-        elif self.life < seconds(0.5):
-            big_spark_sphere(self, 1, 13)
+#         elif self.life < seconds(0.5):
+#             big_spark_sphere(self, 1, 13)
+    def draw(self):
+        if self.life < self.preview_time:
+            screen.blit(images['target'],
+                        (self.target_x - 16, self.target_y - 16))
+        Enemy.draw(self)
 
 
 class Pickup(Sprite):
@@ -592,6 +662,9 @@ class Level(object):
             caption.displace_x = WIDTH * [-1, 1][self.wave % 2]
             caption.spawn()
 
+        if self.wave > 0:
+            play_sound('blippiblipp')
+
         if self.wave == -4:
             caption = Caption(u"grt %s" % VERSION)
             caption.center_at(200)
@@ -601,9 +674,8 @@ class Level(object):
             wisp.life = seconds(7)
             wisp.target_x = WIDTH * (8.0/13)
             wisp.target_y = HEIGHT * (8.0/13)
+            wisp.hittable = False
             wisp.spawn()
-            caption = Caption(u"")
-            self.delayed_captions[seconds(3)] = [caption]
             caption = Caption(u"Men, gå till den gröna plutten då!")
             self.delayed_captions[seconds(22)] = [caption]
         elif self.wave == -3:
@@ -611,6 +683,7 @@ class Level(object):
             wisp.target_x = 64
             wisp.target_y = 64
             wisp.life = seconds(12)
+            wisp.hittable = False
             wisp.spawn()
             for s in [1, 16, 23]:
                 self.delayed_captions[seconds(s)] = [Caption(u"Använd %s för att zappa" % keymap['fire_keys'])]
@@ -652,13 +725,14 @@ class Level(object):
     def update(self):
         if self.game_over:
             self.game_over_time += 1
+            if self.game_over_time == seconds(2.0):
+                play_sound('gong')
             if self.game_over_time == seconds(3.5):
                 caption = Caption(u"Tryck 1 för att starta om")
                 caption.life = seconds(15)
                 caption.spawn()
         self.wave_frames += 1
         enemies = [s for s in level.sprites if isinstance(s, Enemy)]
-        wisps = [s for s in level.sprites if isinstance(s, Wisp)]
 
         if self.delayed_captions.has_key(self.wave_frames):
             for c in self.delayed_captions[self.wave_frames]:
@@ -670,7 +744,7 @@ class Level(object):
                 caption.spawn()
 
         if self.wave_frames > self.min_wave_time:
-            total_enemies = len(enemies) + len(wisps)
+            total_enemies = len(enemies)
             mandatory_pickups = [p for p in level.sprites if isinstance(p, Pickup) and p.mandatory()]
 
             if total_enemies == 0 and len(mandatory_pickups) == 0:
@@ -683,6 +757,14 @@ class Level(object):
     def cull_sprites(self):
         self.sprites = [s for s in self.sprites if not s.remove]
         self.captions = [s for s in self.captions if not s.remove]
+    def random_position(self):
+        if random.randrange(2):
+            x = (random.expovariate(2) * [0.5, -0.5][random.randrange(2)] + 0.5) * WIDTH
+            y = (random.expovariate(2) * [0.5, -0.5][random.randrange(2)] + 0.5) * HEIGHT
+        else:
+            x = (1 / (1+random.expovariate(2)) * [0.5, -0.5][random.randrange(2)] + 0.5) * WIDTH
+            y = (1 / (1+random.expovariate(2)) * [0.5, -0.5][random.randrange(2)] + 0.5) * HEIGHT
+        return (x, y)
 
 players = [Player()]
 level = Level()
@@ -715,6 +797,10 @@ def update():
         if x or y:
             players[0].fire(x, y)
 
+        t = pygame.time.get_ticks()
+        if not len([b for b in [fire_up, fire_down, fire_left, fire_right] if t - b.last_push_time > 350]):
+            players[0].bomb()
+
     level.update()
 
     for foo in chain(level.sprites, level.captions):
@@ -725,15 +811,16 @@ def update():
     good_bullets = [s for s in level.sprites if isinstance(s, GoodBullet)]
     enemies = [s for s in level.sprites if isinstance(s, Enemy)]
 
-    for enemy in enemies:
+    for enemy in [e for e in enemies if e.hittable]:
         for bullet in good_bullets:
             if bullet.touches(enemy):
-                bullet.remove = True
-                good_bullets.remove(bullet)
+                if bullet.perish:
+                    bullet.remove = True
+                    good_bullets.remove(bullet)
                 enemy.explode(bullet)
 
     hittable_players = [p for p in players if p.hittable()]
-    for enemy in enemies:
+    for enemy in [e for e in enemies if e.crashable]:
         for player in hittable_players:
             if player.touches(enemy):
                 player.explode()
@@ -794,13 +881,13 @@ while running:
                 for alt in keymap_alts:
                     if alt.has_key(event.key):
                         keymap = alt
-                        keymap[event.key].state = True
+                        keymap[event.key].set(True)
                         break
             else:
                 if keymap.has_key(event.key):
-                    keymap[event.key].state = True
+                    keymap[event.key].set(True)
         elif event.type == pygame.KEYUP:
             if keymap.has_key(event.key):
-                keymap[event.key].state = False
+                keymap[event.key].set(False)
 
     clock.tick(MAX_FPS)
