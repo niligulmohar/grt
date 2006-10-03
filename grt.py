@@ -95,7 +95,8 @@ image_names = ['grass',
                'pickup',
                'eights',
                'target',
-               'bomb']
+               'bomb',
+               'aura']
 
 images = {}
 
@@ -223,11 +224,13 @@ class Sprite(object):
             self.remove = True
     def update(self):
         pass
+    def draw_image(self, image, frame):
+        screen.blit(image,
+                    (self.x - self.x_offset, self.y - self.y_offset),
+                    (self.frame_width * frame, 0, self.frame_width, self.frame_width))
     def draw(self):
         if self.visible and not self.remove:
-            screen.blit(self.image,
-                        (self.x - self.x_offset, self.y - self.y_offset),
-                        (self.frame_width * self.frame, 0, self.frame_width, self.frame_width))
+            self.draw_image(self.image, self.frame)
     def decrease_life(self):
         self.life -= 1
         if self.life == 0:
@@ -281,6 +284,8 @@ class Player(Sprite):
         self.invulnerability_delay = 0
         self.fire_delay = 0
         self.bomb_delay = 0
+        self.bombs = 0
+        self.charge = 0
         self.remove = True
         self.continuous_fire = False
     def respawn(self):
@@ -292,26 +297,38 @@ class Player(Sprite):
         self.invulnerability_delay = seconds(3)
         self.maybe_spawn()
         self.bomb_delay = 0
-        self.bomb()
+        if self.machines_remaining < 2:
+            self.bombs = 1
+            self.bomb()
+        self.bombs = 0
+        self.charge = 0
     def hittable(self):
         return self.invulnerability_delay == 0 and not self.remove
     def update(self):
         if self.invulnerability_delay:
             self.invulnerability_delay -= 1
-        self.visible = self.invulnerability_delay % 2 == 0
+        #self.visible = self.invulnerability_delay % 2 == 0
         if self.fire_delay:
             self.fire_delay -= 1
         else:
             self.continuous_fire = False
         if self.bomb_delay:
             self.bomb_delay -= 1
+
+        while self.charge > 1:
+            self.charge -= 1
+            self.bombs += 1
+            play_sound('gong')
+        self.subtract_charge(0.001 * ((self.bombs + 1) ** 1.1))
     def bomb(self):
-        if self.bomb_delay == 0:
+        if self.bomb_delay == 0 and self.bombs > 0:
             play_sound('boohm')
             bullet = BombBlast()
             bullet.move(self)
             bullet.owner = self
             bullet.spawn()
+            self.bombs -= 1
+            self.charge = 0
             self.bomb_delay = self.BOMB_DELAY
 
     def fire(self, dx_param, dy_param):
@@ -348,11 +365,20 @@ class Player(Sprite):
             bullet.spawn()
             self.fire_delay = self.FIRE_DELAY
             big_spark_spray(bullet, 3, self.BULLET_SPEED, 0.3)
+    def add_score(self, score):
+        self.score += score
+        if not (self.bomb_delay or self.remove):
+            self.charge += score / 3000.0
+    def subtract_charge(self, charge):
+        self.charge = max(0, self.charge - charge)
     def explode(self):
         play_sound('boom')
         spray = RotatingSpray()
         spray.move(self)
         spray.spawn()
+        self.charge = 0
+        self.bombs = 0
+        self.bomb_delay = 0
         self.remove = True
         self.respawn_delay = seconds(1)
         if self.machines_remaining == 0:
@@ -360,6 +386,14 @@ class Player(Sprite):
             level.game_over = True
     def score_text(self):
         return "%010d" % self.score
+    def bomb_delay_fraction(self):
+        return float(self.bomb_delay) / self.BOMB_DELAY
+    def draw(self):
+        if self.invulnerability_delay > 16:
+            self.draw_image(images['aura'], self.invulnerability_delay % 2)
+        elif self.invulnerability_delay > 0:
+            self.draw_image(images['aura'], 8 - self.invulnerability_delay / 2)
+        Sprite.draw(self)
 
 class Bullet(Sprite):
     def initialize(self):
@@ -375,6 +409,8 @@ class Bullet(Sprite):
         self.y += self.delta_y
         self.square_radius *= self.radius_coefficent
         self.cull()
+        if self.remove:
+            self.owner.subtract_charge(0.005)
         if random.randrange(8) == 0:
             spark = Spark()
             spark.move(self)
@@ -394,11 +430,11 @@ class BombBlast(GoodBullet):
         angle = random.uniform(0, math.pi * 2)
         self.delta_x = Player.BULLET_SPEED * math.cos(angle)
         self.delta_y = Player.BULLET_SPEED * math.sin(angle)
-        self.life = 12 + 1
+        self.life = 12
         self.perish = False
     def update(self):
+        self.frame = 4 - int(math.ceil(self.life/ 3.0))
         self.decrease_life()
-        self.frame = 4 - self.life/ 3
         self.cull()
 
 class Spark(Sprite):
@@ -442,7 +478,7 @@ class Enemy(Sprite):
         self.crashable = True
     def explode(self, bullet):
         self.remove = True
-        bullet.owner.score += self.value
+        bullet.owner.add_score(self.value)
         big_spark_spray(bullet, 20, 32, 0.5, self)
         play_sound('snare')
 
@@ -500,7 +536,7 @@ class RotatingSpray(Sprite):
     def initialize(self):
         self.life = self.MAX_LIFE
         self.visible = False
-        self.direction = random.random() * math.pi * 2
+        self.direction = random.uniform(0, math.pi * 2)
     def update(self):
         self.direction += 1.1
         for i in xrange(11):
@@ -574,6 +610,7 @@ class Pickup(Sprite):
     def pickup_by(self, player):
         self.remove = True
         big_spark_sphere(self, 7, 7)
+        play_sound('whap')
 
 class Caption(Sprite):
     def initialize(self, text, font = caption_font):
@@ -700,7 +737,7 @@ class Level(object):
             self.few_enemies = 3
             self.few_enemies_delay = seconds(8.5)
         elif self.wave == 1:
-            caption = Caption(u"Nu börjar vi på riktigt!")
+            caption = Caption(u"Nu börjar allvaret!")
             players[0].machines_remaining = 2
             if players[0].remove:
                 players[0].machines_remaining += 1
@@ -726,7 +763,8 @@ class Level(object):
         if self.game_over:
             self.game_over_time += 1
             if self.game_over_time == seconds(2.0):
-                play_sound('gong')
+                #play_sound('gong')
+                pass
             if self.game_over_time == seconds(3.5):
                 caption = Caption(u"Tryck 1 för att starta om")
                 caption.life = seconds(15)
@@ -841,6 +879,22 @@ def update():
             if player.respawn_delay == 0:
                 player.respawn()
 
+BAR_MARGIN = 5
+BAR_WIDTH = 4
+def draw_bars(number, max, charge, discharge):
+    if discharge:
+        color = (255,0,0)
+    else:
+        color = (255,255,255)
+    bar_width = WIDTH / max
+    for n in xrange(number):
+        screen.fill((0,0,0), (n*bar_width + BAR_MARGIN + 2, BAR_MARGIN + 2, bar_width - (BAR_MARGIN + 2), BAR_WIDTH))
+        screen.fill(color, (n*bar_width + BAR_MARGIN, BAR_MARGIN, bar_width - (BAR_MARGIN + 2), BAR_WIDTH))
+    if charge:
+        charge_width = int(bar_width * charge - (BAR_MARGIN + 2))
+        charge_x = (bar_width - charge_width) / 2
+        screen.fill((0,0,0), (number*bar_width + (BAR_MARGIN + 2) + charge_x, (BAR_MARGIN + 2), charge_width, BAR_WIDTH))
+        screen.fill(color, (number*bar_width + BAR_MARGIN + charge_x, BAR_MARGIN, charge_width, BAR_WIDTH))
 
 def redraw():
     screen.blit(images['grass'], (0,0))
@@ -859,6 +913,12 @@ def redraw():
         x = text.get_width() + 8
         for i in xrange(players[0].machines_remaining):
             screen.blit(images['machine'], (x + i*34, HEIGHT - 40))
+    max_bombs = max(players[0].bombs + 1, 4)
+    if players[0].bomb_delay > 0:
+        draw_bars(players[0].bombs, max_bombs, players[0].bomb_delay_fraction(), True)
+    else:
+        draw_bars(players[0].bombs, max_bombs, min(1, players[0].charge), False)
+    #draw_bars(2, 4, 0.3, False)
     pygame.display.update()
 
 ######################################################################

@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://web.resource.org/cc/"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns:sodipodi="http://inkscape.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="512"
+   height="64"
+   id="svg9762"
+   sodipodi:version="0.32"
+   inkscape:version="0.43"
+   version="1.0"
+   sodipodi:docbase="/home/nili/proj/grt/data"
+   sodipodi:docname="aura.svg"
+   inkscape:export-filename="/home/nili/proj/grt/data/aura.png"
+   inkscape:export-xdpi="90"
+   inkscape:export-ydpi="90">
+  <defs
+     id="defs9764">
+    <linearGradient
+       id="linearGradient10645">
+      <stop
+         style="stop-color:#ffffff;stop-opacity:0;"
+         offset="0"
+         id="stop10647" />
+      <stop
+         id="stop10653"
+         offset="0.80000001"
+         style="stop-color:#ffffff;stop-opacity:0.3764706;" />
+      <stop
+         style="stop-color:#ffffff;stop-opacity:1;"
+         offset="1"
+         id="stop10649" />
+    </linearGradient>
+    <radialGradient
+       inkscape:collect="always"
+       xlink:href="#linearGradient10645"
+       id="radialGradient10651"
+       cx="32"
+       cy="32"
+       fx="32"
+       fy="32"
+       r="32"
+       gradientUnits="userSpaceOnUse"
+       spreadMethod="pad" />
+  </defs>
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="2.1445312"
+     inkscape:cx="256"
+     inkscape:cy="32"
+     inkscape:current-layer="layer1"
+     showgrid="true"
+     inkscape:document-units="px"
+     inkscape:grid-bbox="true"
+     gridempspacing="32"
+     gridspacingx="8px"
+     gridspacingy="8px"
+     gridtolerance="4px"
+     inkscape:grid-points="true"
+     inkscape:window-width="1192"
+     inkscape:window-height="1546"
+     inkscape:window-x="0"
+     inkscape:window-y="0" />
+  <metadata
+     id="metadata9767">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     id="layer1"
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer">
+    <path
+       sodipodi:type="arc"
+       style="fill:url(#radialGradient10651);fill-opacity:1.0;stroke:none;stroke-opacity:1"
+       id="path9770"
+       sodipodi:cx="32"
+       sodipodi:cy="32"
+       sodipodi:rx="32"
+       sodipodi:ry="32"
+       d="M 64 32 A 32 32 0 1 1  0,32 A 32 32 0 1 1  64 32 z"
+       inkscape:tile-w="64"
+       inkscape:tile-h="64"
+       inkscape:tile-cx="32"
+       inkscape:tile-cy="32" />
+    <use
+       x="0"
+       y="0"
+       inkscape:tiled-clone-of="#path9770"
+       xlink:href="#path9770"
+       id="use10695" />
+    <use
+       x="0"
+       y="0"
+       inkscape:tiled-clone-of="#path9770"
+       xlink:href="#path9770"
+       transform="matrix(0.875,0,0,0.875,68,4)"
+       opacity="0.9"
+       id="use10697" />
+    <use
+       x="0"
+       y="0"
+       inkscape:tiled-clone-of="#path9770"
+       xlink:href="#path9770"
+       transform="matrix(0.75,0,0,0.75,136,8)"
+       opacity="0.8"
+       id="use10699" />
+    <use
+       x="0"
+       y="0"
+       inkscape:tiled-clone-of="#path9770"
+       xlink:href="#path9770"
+       transform="matrix(0.625,0,0,0.625,204,12)"
+       opacity="0.7"
+       id="use10701" />
+    <use
+       x="0"
+       y="0"
+       inkscape:tiled-clone-of="#path9770"
+       xlink:href="#path9770"
+       transform="matrix(0.5,0,0,0.5,272,16)"
+       opacity="0.6"
+       id="use10703" />
+    <use
+       x="0"
+       y="0"
+       inkscape:tiled-clone-of="#path9770"
+       xlink:href="#path9770"
+       transform="matrix(0.375,0,0,0.375,340,20)"
+       opacity="0.5"
+       id="use10705" />
+    <use
+       x="0"
+       y="0"
+       inkscape:tiled-clone-of="#path9770"
+       xlink:href="#path9770"
+       transform="matrix(0.25,0,0,0.25,408,24)"
+       opacity="0.4"
+       id="use10707" />
+    <use
+       x="0"
+       y="0"
+       inkscape:tiled-clone-of="#path9770"
+       xlink:href="#path9770"
+       transform="matrix(0.125,0,0,0.125,476,28)"
+       opacity="0.3"
+       id="use10709" />
+  </g>
+</svg>
