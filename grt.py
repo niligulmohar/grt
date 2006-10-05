@@ -524,7 +524,7 @@ class Player(Sprite):
         return float(self.bomb_delay) / self.BOMB_DELAY
     def draw(self):
         if self.invulnerability_delay > 16:
-            self.draw_image(images['aura'], self.invulnerability_delay % 2)
+            self.draw_image(images['aura'], [0,1,2,1][(self.invulnerability_delay % 16)/4])
         elif self.invulnerability_delay > 0:
             self.draw_image(images['aura'], 8 - self.invulnerability_delay / 2)
         Sprite.draw(self)
