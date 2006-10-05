@@ -20,6 +20,10 @@ SOUND = True
 pygame.init()
 if not pygame.mixer.get_init():
     SOUND = False
+else:
+    pygame.mixer.set_reserved(1)
+    priority_channel = pygame.mixer.Channel(0)
+
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.DOUBLEBUF | FLAGS)
 pygame.mouse.set_visible(False)
 
@@ -150,7 +154,8 @@ joystick_maps = { 'HID 0b43:0003': { 'name': 'EMS Dualshooter',
 
 joysticks = [Joystick(pygame.joystick.Joystick(i)) for i in xrange(pygame.joystick.get_count())]
 
-keymap = { pygame.K_1: start,
+keymap = { 'undecided_keymap': True,
+           pygame.K_1: start,
            pygame.K_p: start,
            pygame.K_PAUSE: start,
            'fire_keys': 'I J K L',
@@ -201,12 +206,14 @@ image_names = ['grass',
                'bigspark',
                'wisp',
                'fairy',
+               'proto_hulk',
                'machine',
                'pickup',
                'eights',
                'target',
                'bomb',
-               'aura']
+               'aura',
+               'enemy_placeholder']
 
 images = {}
 
@@ -230,9 +237,13 @@ if SOUND:
     for name in sound_names:
         sounds[name] = pygame.mixer.Sound(os.path.join('data', name + '.wav'))
 
-def play_sound(name):
+def play_sound(name, priority = False, really_high_priority = True):
     if SOUND:
-        sounds[name].play()
+        if priority:
+            if really_high_priority or not priority_channel.get_busy():
+                priority_channel.play(sounds[name])
+        else:
+            sounds[name].play()
 
 ######################################################################
 
@@ -414,6 +425,7 @@ class Player(Sprite):
             self.bomb()
         self.bombs = 0
         self.charge = 0
+        level.reset_cat_score()
     def hittable(self):
         return self.invulnerability_delay == 0 and not self.remove
     def update(self):
@@ -430,11 +442,11 @@ class Player(Sprite):
         while self.charge > 1:
             self.charge -= 1
             self.bombs += 1
-            play_sound('gong')
+            play_sound('gong', True)
         self.subtract_charge(0.001 * ((self.bombs + 1) ** 1.1))
     def bomb(self):
         if self.bomb_delay == 0 and self.bombs > 0:
-            play_sound('boohm')
+            play_sound('boohm', True)
             bullet = BombBlast()
             bullet.move(self)
             bullet.owner = self
@@ -478,11 +490,14 @@ class Player(Sprite):
             bullet.spawn()
             self.fire_delay = self.FIRE_DELAY
             big_spark_spray(bullet, 3, self.BULLET_SPEED, 0.3)
-    def add_score(self, score):
-        self.last_score = int(score * (1 + self.bombs/2.0 + self.charge/2.5))
+    def add_score(self, score, bonus = True):
+        if bonus:
+            self.last_score = int(score * (1 + self.bombs/2.0 + self.charge/2.5))
+            if not (self.bomb_delay or self.remove):
+                self.charge += score / 3000.0
+        else:
+            self.last_score = score
         self.score += self.last_score
-        if not (self.bomb_delay or self.remove):
-            self.charge += score / 3000.0
     def score_text(self):
         return '%010d' % self.score
     def last_score_text(self):
@@ -493,7 +508,7 @@ class Player(Sprite):
     def subtract_charge(self, charge):
         self.charge = max(0, self.charge - charge)
     def explode(self):
-        play_sound('boom')
+        play_sound('boom', True)
         spray = RotatingSpray()
         spray.move(self)
         spray.spawn()
@@ -595,6 +610,7 @@ class Enemy(Sprite):
         self.value = 0
         self.hittable = True
         self.crashable = True
+        self.destructible = True
     def explode(self, bullet):
         self.remove = True
         bullet.owner.add_score(self.value)
@@ -652,7 +668,27 @@ class ProtoGrunt(Enemy):
         self.phase += 1
         self.phase %= self.PHASE_CYCLE
         self.frame = (self.phase / 5) % 2 + (self.facing_right and 2 or 0)
-
+class ProtoHulk(ProtoGrunt):
+    PHASE_CYCLE = seconds(2)
+    def initialize(self):
+        ProtoGrunt.initialize(self)
+        self.set_image(images['proto_hulk'])
+        self.destructible = False
+    def update(self):
+        self.direction += self.delta_direction
+        if random.randrange(20) == 0:
+            self.delta_direction *= -1
+        x = math.cos(self.direction)
+        self.x += x * self.idle_speed
+        self.facing_right = x > 0
+        self.y += math.sin(self.direction) * self.idle_speed
+        if self.clamp_position():
+            self.direction += math.pi / 2
+        self.phase += 1
+        self.phase %= self.PHASE_CYCLE
+        self.frame = (self.phase > seconds(1.7) and 1 or 0) + (self.facing_right and 2 or 0)
+    def explode(self, bullet):
+        pass
 class RotatingSpray(Sprite):
     SPARK_SPEED = 18
     MAX_LIFE = 9
@@ -691,6 +727,8 @@ class Wisp(Enemy):
         self.preview_time = seconds(1)
         self.visible = False
         self.enemy_class = enemy_class
+        if enemy_class in [Cat, ProtoHulk]:
+            self.hittable = False
         if level.wave > 0:
             self.value = 50
         else:
@@ -735,6 +773,42 @@ class Pickup(Sprite):
         big_spark_sphere(self, 7, 7)
         play_sound('whap')
 
+class Cat(Pickup):
+    SPEED = 2
+    def initialize(self):
+        self.set_image(images['enemy_placeholder'])
+        self.square_radius = 32 ** 2
+        self.direction = random.uniform(0, math.pi * 2)
+        self.delta_direction = random.uniform(-0.01, 0.01)
+        self.speed = random.uniform(self.SPEED / 2, self.SPEED)
+        self.will_escape = False
+    def update(self):
+        if random.randrange(16) == 0:
+            self.delta_direction *= -1
+        if self.will_escape:
+            speed = self.SPEED * 1.8
+        else:
+            speed = self.speed
+            self.direction += self.delta_direction
+        self.x += math.cos(self.direction) * speed
+        self.y += math.sin(self.direction) * speed
+        if self.will_escape:
+            self.cull()
+        else:
+            if self.clamp_position():
+                self.direction -= math.pi / 2
+    def mandatory(self):
+        return False
+    def pickup_by(self, player):
+        Pickup.pickup_by(self, player)
+        player.add_score(level.cat_score, False)
+        score = Caption(player.last_score_text(), tiny_font)
+        score.center_at(player)
+        score.life = seconds(1.5)
+        score.spawn()
+        if level.cat_score < 5000:
+            level.cat_score += 1000
+
 class Caption(Sprite):
     def initialize(self, text, font = caption_font):
         self.special = False
@@ -777,6 +851,7 @@ class Level(object):
     def __init__(self):
         pass
     def restart(self, skip_tutorial = False):
+        self.skipped_tutorial = skip_tutorial
         self.sprites = []
         self.captions = []
         if skip_tutorial:
@@ -790,6 +865,7 @@ class Level(object):
         self.min_wave_time = 0
         self.few_enemies = 0
         self.few_enemies_delay = seconds(10)
+        self.cat_score = 1000
         self.game_over = False
         self.game_over_time = 0
         self.pause = False
@@ -800,6 +876,7 @@ class Level(object):
         if self.game_over:
             self.restart(skip_tutorial = True)
         elif self.wave < 1:
+            self.skipped_tutorial = True
             self.wave = 0
             self.sprites = players[:]
             self.new_wave()
@@ -807,10 +884,22 @@ class Level(object):
             self.pause = not self.pause
             if SOUND:
                 if self.pause:
+                    pygame.mixer.pause()
                     pygame.mixer.music.pause()
                 else:
+                    pygame.mixer.unpause()
                     pygame.mixer.music.unpause()
+    def spawn_cats(self, n):
+        for i in xrange(n):
+            wisp = Wisp(Cat)
+            wisp.hittable = False
+            wisp.spawn()
+    def reset_cat_score(self):
+        self.cat_score = 1000
     def new_wave(self):
+        self.reset_cat_score()
+        for cat in (c for c in self.sprites if isinstance(c, Cat)):
+            cat.will_escape = True
         if self.wave < 1 and not self.game_over:
             self.captions = [c for c in self.captions if c.special]
         self.wave += 1
@@ -823,7 +912,7 @@ class Level(object):
             caption.spawn()
 
         if self.wave > 0:
-            play_sound('blippiblipp')
+            play_sound('blippiblipp', True, False)
 
         if self.wave == -4:
             illustration = Caption(images['nili_gulmohar'])
@@ -863,28 +952,39 @@ class Level(object):
             self.few_enemies = 0
             #self.few_enemies_delay = seconds(8.5)
         elif self.wave == 1:
-            caption = Caption(u"Nu börjar allvaret!")
             players[0].machines_remaining = 2
             if players[0].remove:
                 players[0].machines_remaining += 1
-            caption.displace_y = -HEIGHT
-            self.delayed_captions[seconds(0.5)] = [caption]
+            if not self.skipped_tutorial:
+                caption = Caption(u"Nu börjar allvaret!")
+                caption.displace_y = -HEIGHT
+                self.delayed_captions[seconds(0.5)] = [caption]
             self.few_enemies = 5
             self.few_enemies_delay = seconds(1.5)
             self.sprites += [Wisp(ProtoGrunt) for s in xrange(17)]
+            self.sprites += [Wisp(ProtoHulk) for s in xrange(1)]
+            self.spawn_cats(3)
         elif self.wave == 2:
             self.sprites += [Wisp(ProtoGrunt) for s in xrange(50)]
+            self.spawn_cats(4)
+            self.sprites += [Wisp(ProtoHulk) for s in xrange(2)]
         elif self.wave == 3:
             self.sprites += [Wisp(ProtoGrunt) for s in xrange(60)]
+            self.spawn_cats(5)
+            self.sprites += [Wisp(ProtoHulk) for s in xrange(2)]
         elif self.wave == 4:
             self.sprites += [Wisp(ProtoGrunt) for s in xrange(70)]
+            self.spawn_cats(6)
+            self.sprites += [Wisp(ProtoHulk) for s in xrange(2)]
         elif self.wave == 5:
             self.few_enemies = 0
             self.sprites += [Wisp(ProtoGrunt) for s in xrange(80)]
+            self.spawn_cats(7)
         elif self.wave > 5:
             self.few_enemies = 100
             self.few_enemies_delay = seconds(3.5)
             self.sprites += [Wisp(ProtoGrunt) for s in xrange(self.wave * 3)]
+            self.spawn_cats(1)
     def update(self):
         if self.game_over:
             self.game_over_time += 1
@@ -896,7 +996,7 @@ class Level(object):
                 caption.life = seconds(15)
                 caption.spawn()
         self.wave_frames += 1
-        enemies = [s for s in level.sprites if isinstance(s, Enemy)]
+        enemies = [s for s in level.sprites if isinstance(s, Enemy) and s.destructible]
 
         if self.delayed_captions.has_key(self.wave_frames):
             for c in self.delayed_captions[self.wave_frames]:
@@ -992,7 +1092,8 @@ def update():
                 break
 
     pickups = [p for p in level.sprites if isinstance(p, Pickup)]
-    for player in hittable_players:
+    living_players = [p for p in players if not p.remove]
+    for player in living_players:
         for pickup in pickups:
             if player.touches(pickup):
                 pickup.pickup_by(player)
@@ -1030,7 +1131,7 @@ def redraw():
         screen.blit(images['dark'], (0,0))
     for caption in level.captions:
         caption.draw()
-    if players[0].y < HEIGHT - 64 or players[0].remove:
+    if players[0].y < HEIGHT - 64 or players[0].x > WIDTH / 3 or players[0].remove:
         shadow = font.render(players[0].score_text(), True, (0,0,0))
         y = HEIGHT - shadow.get_height() - 2
         screen.blit(shadow, (2, y + 2))
@@ -1039,11 +1140,6 @@ def redraw():
         x = text.get_width() + 8
         for i in xrange(players[0].machines_remaining):
             screen.blit(images['machine'], (x + i*34, HEIGHT - 40))
-#         shadow = small_font.render(players[0].last_score_text(), True, (0,0,0))
-#         y -= shadow.get_height() - 2
-#         screen.blit(shadow, (2, y + 2))
-#         text = small_font.render(players[0].last_score_text(), True, (255,255,255))
-#         screen.blit(text, (0, y))
     max_bombs = max(players[0].bombs + 1, 4)
     if players[0].bomb_delay > 0:
         draw_bars(players[0].bombs, max_bombs, players[0].bomb_delay_fraction(), True)
@@ -1066,7 +1162,9 @@ while running:
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 running = False
-            elif len(keymap) <= 5:
+            elif event.key == pygame.K_RETURN and event.mod:
+                pygame.display.toggle_fullscreen()
+            elif keymap.has_key('undecided_keymap'):
                 for alt in keymap_alts:
                     if alt.has_key(event.key):
                         keymap = alt
