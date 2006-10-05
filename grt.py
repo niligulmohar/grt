@@ -225,7 +225,7 @@ def play_sound(name):
 
 songs = { 'sparrow': "GibIt - Please, Don't Eat The Sparrow",
           'solitude': 'GibIt - Solitude of a Shapeless Outcast',
-          'perfect': 'GibIt - "Perfect"' }
+          'perfect': "GibIt - 'Perfect'" }
 
 def play_music(song):
     if SOUND:
