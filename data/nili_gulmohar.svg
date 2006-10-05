@@ -14,7 +14,7 @@
    id="svg3969"
    sodipodi:version="0.32"
    inkscape:version="0.43"
-   sodipodi:docbase="/home/nili/vektor"
+   sodipodi:docbase="/home/nili/proj/grt/data"
    sodipodi:docname="nili_gulmohar.svg"
    inkscape:export-filename="/home/nili/vektor/nili_gulmohar.png"
    inkscape:export-xdpi="90"
@@ -32,7 +32,7 @@
          offset="0.61764705"
          style="stop-color:#000000;stop-opacity:0.57731956;" />
       <stop
-         style="stop-color:#811515;stop-opacity:0;"
+         style="stop-color:#000000;stop-opacity:0;"
          offset="1"
          id="stop9582" />
     </linearGradient>
@@ -289,7 +289,7 @@
      inkscape:zoom="0.52572653"
      inkscape:cx="248.97382"
      inkscape:cy="479.10373"
-     inkscape:current-layer="layer1"
+     inkscape:current-layer="layer2"
      inkscape:document-units="px"
      inkscape:window-width="1016"
      inkscape:window-height="735"

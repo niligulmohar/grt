@@ -11,7 +11,7 @@ try:
 except:
     pass
 
-VERSION = 0.1
+VERSION = 0.2
 WIDTH, HEIGHT = (1024, 768)
 MAX_FPS = 45
 FLAGS = 0 #pygame.FULLSCREEN
@@ -26,7 +26,7 @@ pygame.mouse.set_visible(False)
 def make_font(name, size):
     return pygame.font.Font(os.path.join('data', name + '.ttf'), size)
 
-small_font, font, caption_font = (make_font('Titania-Regular', size) for size in (32, 36, 48))
+tiny_font, small_font, font, caption_font = (make_font('Titania-Regular', size) for size in (20, 32, 36, 48))
 
 def seconds(sec):
     return int(sec * MAX_FPS)
@@ -37,12 +37,39 @@ class Button(object):
     def __init__(self):
         self.state = False
         self.last_push_time = -1000
+        self.triggered = False
     def set(self, state):
         self.state = state
         if state:
             self.last_push_time = pygame.time.get_ticks()
+            self.triggered = True
+    def maybe_set(self, state):
+        if state != self.state:
+            self.set(state)
+    def get_triggered(self):
+        if self.triggered:
+            self.triggered = False
+            return True
+        else:
+            return False
     def __call__(self):
         return self.state
+
+class Axis(object):
+    THRESHOLD = 0.66
+    def __init__(self, button_low, button_high):
+        self.button_low = button_low
+        self.button_high = button_high
+    def set(self, value):
+        if value < -self.THRESHOLD:
+            self.button_low.maybe_set(True)
+            self.button_high.maybe_set(False)
+        elif value > self.THRESHOLD:
+            self.button_low.maybe_set(False)
+            self.button_high.maybe_set(True)
+        else:
+            self.button_low.maybe_set(False)
+            self.button_high.maybe_set(False)
 
 move_up = Button()
 move_down = Button()
@@ -52,11 +79,73 @@ fire_up = Button()
 fire_down = Button()
 fire_left = Button()
 fire_right = Button()
+start = Button()
 
-keymap = {'move_keys': 'E S D F'}
+move_y = Axis(move_up, move_down)
+move_x = Axis(move_left, move_right)
+fire_y = Axis(fire_up, fire_down)
+fire_x = Axis(fire_left, fire_right)
+
+class Joystick(object):
+    def __init__(self, joy):
+        self.joystick = joy
+        self.name = joy.get_name()
+        if joystick_maps.has_key(self.name):
+            joy.init()
+            self.bindings = joystick_maps[self.name]
+        else:
+            print 'Unrecognized joystick: %s' % self.name
+
+joystick_maps = { 'HID 0b43:0003': { 'name': 'EMS Dualshooter',
+                                     'axes': { 0: move_x,
+                                               1: move_y,
+                                               5: fire_x,
+                                               2: fire_y },
+                                     'buttons': { 0: fire_up,
+                                                  16: fire_up,
+                                                  1: fire_right,
+                                                  17: fire_right,
+                                                  2: fire_down,
+                                                  18: fire_down,
+                                                  3: fire_left,
+                                                  19: fire_left,
+                                                  9: start,
+                                                  25: start,
+                                                  12: move_up,
+                                                  28: move_up,
+                                                  13: move_right,
+                                                  29: move_right,
+                                                  14: move_down,
+                                                  30: move_down,
+                                                  15: move_left,
+                                                  31: move_left } },
+                  'HID 6666:0667': { 'name': 'BOOM PSX+N64 converter',
+                                     'axes': { 0: move_x,
+                                               1: move_y,
+                                               2: fire_x,
+                                               3: fire_y },
+                                     'buttons': { 0: fire_up,
+                                                  1: fire_right,
+                                                  2: fire_down,
+                                                  3: fire_left,
+                                                  11: start,
+                                                  12: move_up,
+                                                  13: move_right,
+                                                  14: move_down,
+                                                  15: move_left } } }
 
 
-keymap_alts = [{ pygame.K_e: move_up,
+joysticks = [Joystick(pygame.joystick.Joystick(i)) for i in xrange(pygame.joystick.get_count())]
+
+keymap = { pygame.K_1: start,
+           pygame.K_p: start,
+           pygame.K_PAUSE: start,
+           'fire_keys': 'I J K L',
+           'move_keys': 'E S D F' }
+
+
+keymap_alts = [{ 'name': 'MAME-bindingar för Robotron',
+                 pygame.K_e: move_up,
                  pygame.K_d: move_down,
                  pygame.K_s: move_left,
                  pygame.K_f: move_right,
@@ -64,9 +153,13 @@ keymap_alts = [{ pygame.K_e: move_up,
                  pygame.K_k: fire_down,
                  pygame.K_j: fire_left,
                  pygame.K_l: fire_right,
+                 pygame.K_1: start,
+                 pygame.K_p: start,
+                 pygame.K_PAUSE: start,
                  'fire_keys': 'I J K L',
                  'move_keys': 'E S D F' },
-               { pygame.K_KP8: move_up,
+               { 'name': 'MAME-bindningar för spelare 1 och 2',
+                 pygame.K_KP8: move_up,
                  pygame.K_KP2: move_down,
                  pygame.K_KP4: move_left,
                  pygame.K_KP6: move_right,
@@ -78,6 +171,9 @@ keymap_alts = [{ pygame.K_e: move_up,
                  pygame.K_f: fire_down,
                  pygame.K_d: fire_left,
                  pygame.K_g: fire_right,
+                 pygame.K_1: start,
+                 pygame.K_p: start,
+                 pygame.K_PAUSE: start,
                  'fire_keys': 'R D F G',
                  'move_keys': 'piltangenterna' }]
 
@@ -85,6 +181,7 @@ keymap_alts = [{ pygame.K_e: move_up,
 
 image_names = ['grass',
                'dark',
+               'nili_gulmohar',
                'player',
                'bullet',
                'spark',
@@ -274,11 +371,13 @@ class Player(Sprite):
     Y_MARGIN = 23
     FIRE_DELAY = 4
     BOMB_DELAY = seconds(2)
+    INVULNERABILITY_DELAY = seconds(3)
 
     def initialize(self):
         self.set_image(images['player'])
     def reset(self):
         self.score = 0
+        self.last_score = 0
         self.machines_remaining = 3
         self.respawn_delay = seconds(2)
         self.invulnerability_delay = 0
@@ -294,7 +393,7 @@ class Player(Sprite):
         self.y = HEIGHT / 2
         self.fire_delay = 0
         self.remove = False
-        self.invulnerability_delay = seconds(3)
+        self.invulnerability_delay = self.INVULNERABILITY_DELAY
         self.maybe_spawn()
         self.bomb_delay = 0
         if self.machines_remaining < 2:
@@ -330,6 +429,7 @@ class Player(Sprite):
             self.bombs -= 1
             self.charge = 0
             self.bomb_delay = self.BOMB_DELAY
+            self.invulnerability_delay = self.INVULNERABILITY_DELAY
 
     def fire(self, dx_param, dy_param):
         if not self.fire_delay:
@@ -366,9 +466,17 @@ class Player(Sprite):
             self.fire_delay = self.FIRE_DELAY
             big_spark_spray(bullet, 3, self.BULLET_SPEED, 0.3)
     def add_score(self, score):
-        self.score += score
+        self.last_score = int(score * (1 + self.bombs/2.0 + self.charge/2.5))
+        self.score += self.last_score
         if not (self.bomb_delay or self.remove):
             self.charge += score / 3000.0
+    def score_text(self):
+        return '%010d' % self.score
+    def last_score_text(self):
+        if self.last_score:
+            return '%d' % self.last_score
+        else:
+            return ''
     def subtract_charge(self, charge):
         self.charge = max(0, self.charge - charge)
     def explode(self):
@@ -384,8 +492,6 @@ class Player(Sprite):
         if self.machines_remaining == 0:
             stop_music()
             level.game_over = True
-    def score_text(self):
-        return "%010d" % self.score
     def bomb_delay_fraction(self):
         return float(self.bomb_delay) / self.BOMB_DELAY
     def draw(self):
@@ -479,6 +585,10 @@ class Enemy(Sprite):
     def explode(self, bullet):
         self.remove = True
         bullet.owner.add_score(self.value)
+        score = Caption(bullet.owner.last_score_text(), tiny_font)
+        score.center_at(self)
+        score.life = seconds(1)
+        score.spawn()
         big_spark_spray(bullet, 20, 32, 0.5, self)
         play_sound('snare')
 
@@ -688,9 +798,9 @@ class Level(object):
                 else:
                     pygame.mixer.music.unpause()
     def new_wave(self):
-        self.wave += 1
-        if not self.game_over:
+        if self.wave < 1 and not self.game_over:
             self.captions = [c for c in self.captions if c.special]
+        self.wave += 1
         self.delayed_captions = {}
         self.wave_frames = 0
         if self.wave > 1 and not self.game_over:
@@ -703,9 +813,12 @@ class Level(object):
             play_sound('blippiblipp')
 
         if self.wave == -4:
+            illustration = Caption(images['nili_gulmohar'])
+            illustration.displace_y = HEIGHT
+            illustration.spawn()
             caption = Caption(u"grt %s" % VERSION)
-            caption.center_at(200)
-            caption.displace_x = -WIDTH
+            caption.center_at(150)
+            caption.displace_y = -400
             caption.spawn()
             wisp = Wisp(Pickup)
             wisp.life = seconds(7)
@@ -734,8 +847,8 @@ class Level(object):
             caption = Caption(u"Nu vet du allt du behöver")
             self.delayed_captions[seconds(2)] = [caption]
             self.delayed_captions[seconds(0.5)] = [caption]
-            self.few_enemies = 3
-            self.few_enemies_delay = seconds(8.5)
+            self.few_enemies = 0
+            #self.few_enemies_delay = seconds(8.5)
         elif self.wave == 1:
             caption = Caption(u"Nu börjar allvaret!")
             players[0].machines_remaining = 2
@@ -880,7 +993,7 @@ def update():
                 player.respawn()
 
 BAR_MARGIN = 5
-BAR_WIDTH = 4
+BAR_WIDTH = 8
 def draw_bars(number, max, charge, discharge):
     if discharge:
         color = (255,0,0)
@@ -905,14 +1018,19 @@ def redraw():
     for caption in level.captions:
         caption.draw()
     if players[0].y < HEIGHT - 64 or players[0].remove:
-        text = font.render(players[0].score_text(), True, (0,0,0))
-        y = HEIGHT - text.get_height() - 2
-        screen.blit(text, (2, y + 2))
+        shadow = font.render(players[0].score_text(), True, (0,0,0))
+        y = HEIGHT - shadow.get_height() - 2
+        screen.blit(shadow, (2, y + 2))
         text = font.render(players[0].score_text(), True, (255,255,255))
         screen.blit(text, (0, y))
         x = text.get_width() + 8
         for i in xrange(players[0].machines_remaining):
             screen.blit(images['machine'], (x + i*34, HEIGHT - 40))
+#         shadow = small_font.render(players[0].last_score_text(), True, (0,0,0))
+#         y -= shadow.get_height() - 2
+#         screen.blit(shadow, (2, y + 2))
+#         text = small_font.render(players[0].last_score_text(), True, (255,255,255))
+#         screen.blit(text, (0, y))
     max_bombs = max(players[0].bombs + 1, 4)
     if players[0].bomb_delay > 0:
         draw_bars(players[0].bombs, max_bombs, players[0].bomb_delay_fraction(), True)
@@ -935,9 +1053,7 @@ while running:
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 running = False
-            elif event.key in [pygame.K_1, pygame.K_p]:
-                level.restart_or_pause()
-            elif len(keymap) <= 1:
+            elif len(keymap) <= 5:
                 for alt in keymap_alts:
                     if alt.has_key(event.key):
                         keymap = alt
@@ -949,5 +1065,24 @@ while running:
         elif event.type == pygame.KEYUP:
             if keymap.has_key(event.key):
                 keymap[event.key].set(False)
+        elif event.type == pygame.JOYBUTTONDOWN:
+            buttons = joysticks[event.joy].bindings['buttons']
+            if buttons.has_key(event.button):
+                buttons[event.button].set(True)
+            else:
+                print 'unbound button %d on %s' % (event.button, joysticks[event.joy].name)
+        elif event.type == pygame.JOYBUTTONUP:
+            buttons = joysticks[event.joy].bindings['buttons']
+            if buttons.has_key(event.button):
+                buttons[event.button].set(False)
+        elif event.type == pygame.JOYAXISMOTION:
+            axes = joysticks[event.joy].bindings['axes']
+            if axes.has_key(event.axis):
+                axes[event.axis].set(event.value)
+            else:
+                print 'unbound axis %d on %s' % (event.axis, joysticks[event.joy].name)
+
+    if start.get_triggered():
+        level.restart_or_pause()
 
     clock.tick(MAX_FPS)
