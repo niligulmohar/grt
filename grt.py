@@ -132,8 +132,21 @@ joystick_maps = { 'HID 0b43:0003': { 'name': 'EMS Dualshooter',
                                                   12: move_up,
                                                   13: move_right,
                                                   14: move_down,
+                                                  15: move_left } },
+                  '4 axis 16 button joystick': { 'name': 'Idiotiska windowsjoysticknamn... *mummel*',
+                                     'axes': { 0: move_x,
+                                               1: move_y,
+                                               2: fire_x,
+                                               3: fire_y },
+                                     'buttons': { 0: fire_up,
+                                                  1: fire_right,
+                                                  2: fire_down,
+                                                  3: fire_left,
+                                                  11: start,
+                                                  12: move_up,
+                                                  13: move_right,
+                                                  14: move_down,
                                                   15: move_left } } }
-
 
 joysticks = [Joystick(pygame.joystick.Joystick(i)) for i in xrange(pygame.joystick.get_count())]
 
