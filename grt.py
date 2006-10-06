@@ -500,14 +500,17 @@ class Player(Sprite):
     def add_score(self, score, bonus = True):
         if bonus:
             if self.bombs:
-                self.last_score = int(score * self.bombs/2.0 + self.charge/2.5)
+                self.last_score = int(score * ((1 + self.bombs)/2.0 + self.charge/2.5))
             else:
                 self.last_score = score
-            if not (self.bomb_delay or self.remove):
-                self.charge += score / 3000.0
         else:
             self.last_score = score
         self.score += self.last_score
+        if not (self.bomb_delay or self.remove):
+            if bonus:
+                self.charge += score / 3000.0
+            else:
+                self.charge += math.log(score) / 30.0
     def score_text(self):
         return '%010d' % self.score
     def last_score_text(self):
@@ -644,10 +647,7 @@ class ProtoGrunt(Enemy):
         self.facing_right = 0
         self.phase = random.randrange(self.PHASE_CYCLE)
         self.set_follow_delay()
-        if level.wave > 0:
-            self.value = 100
-        else:
-            self.value = 0
+        self.value = 100
     def set_follow_delay(self):
         self.follow_delay = random.randrange(seconds(3)) + seconds(1)
     def update(self):
@@ -734,15 +734,15 @@ class Wisp(Enemy):
         self.delta_phase1 = (random.random() - 0.5) * 0.05
         self.frame_phase = random.randrange(4)
         self.life = 250 + random.randrange(25)
-        self.preview_time = seconds(1)
         self.visible = False
         self.enemy_class = enemy_class
         if enemy_class in [Cat, ProtoHulk]:
             self.hittable = False
-        if level.wave > 0:
-            self.value = 50
+        if enemy_class in [Cat]:
+            self.preview_time = 0
         else:
-            self.value = 0
+            self.preview_time = seconds(1)
+        self.value = 50
     def update(self):
         if not self.visible:
             if random.randrange(10) == 0:
@@ -776,8 +776,7 @@ class Pickup(Sprite):
     def initialize(self):
         self.set_image(images['pickup'])
         self.square_radius = 32 ** 2
-    def mandatory(self):
-        return True
+        self.mandatory_pickup = True
     def pickup_by(self, player):
         self.remove = True
         big_spark_sphere(self, 7, 7)
@@ -793,6 +792,8 @@ class Cat(Pickup):
         self.facing_right = math.cos(self.direction) > 0
         self.speed = random.uniform(self.SPEED / 2, self.SPEED)
         self.wave = level.wave
+        if self.wave < 0:
+            self.mandatory_pickup = True
         self.will_escape = False
     def update(self):
         if random.randrange(16) == 0:
@@ -812,8 +813,6 @@ class Cat(Pickup):
         else:
             if self.clamp_position():
                 self.direction -= math.pi / 2
-    def mandatory(self):
-        return False
     def pickup_by(self, player):
         Pickup.pickup_by(self, player)
         player.add_score(level.cat_score[self.wave], False)
@@ -875,6 +874,7 @@ class Level(object):
         else:
             self.wave = -5
             play_music(songs['sparrow'])
+        self.wave_message_delay = 0
         self.delayed_captions = {}
         self.wave_frames = 0
         self.min_wave_time = 0
@@ -925,11 +925,12 @@ class Level(object):
         self.reset_cat_score()
         self.delayed_captions = {}
         self.wave_frames = 0
-        if self.wave > 1 and not self.game_over:
+        if self.wave > 1 and not self.game_over and not self.wave_message_delay:
             caption = Caption(u"Våg %d" % self.wave)
             caption.center_at(HEIGHT - 200)
             caption.displace_x = WIDTH * [-1, 1][self.wave % 2]
             caption.spawn()
+            self.wave_message_delay = seconds(7)
 
         if self.wave > 0:
             play_sound('blippiblipp', True, False)
@@ -965,7 +966,26 @@ class Level(object):
             caption.center_at(36)
             self.delayed_captions[seconds(13)] = [caption]
         elif self.wave == -2:
-            self.sprites += [Wisp(ProtoGrunt) for n in xrange(3)]
+            caption = Caption(u"Rädda katterna från de sura påskäggen")
+            self.delayed_captions[seconds(4)] = [caption]
+            for i in xrange(3):
+                wisp = Wisp(Cat)
+                wisp.hittable = False
+                wisp.spawn()
+            self.sprites += [Wisp(ProtoHulk) for s in xrange(2)]
+            caption = Caption(u"Gå till katterna och plocka upp dem")
+            self.delayed_captions[seconds(9)] = [caption]
+        elif self.wave == -1:
+            players[0].bombs = 3
+            caption0 = Caption(u"För att släppa en magisk bomb:")
+            caption0.center_at(HEIGHT/2 - 30)
+            caption1 = Caption(u"Skjut i alla riktningar i snabb följd")
+            caption1.center_at(HEIGHT/2 + 30)
+            self.delayed_captions[seconds(1)] = [caption0, caption1]
+            self.sprites += [Wisp(ProtoGrunt) for s in xrange(3)]
+        elif self.wave == 0:
+            self.sprites = [s for s in self.sprites if not isinstance(s, ProtoHulk)]
+            self.sprites += [Wisp(ProtoGrunt) for n in xrange(5)]
             caption = Caption(u"Nu vet du allt du behöver")
             self.delayed_captions[seconds(2)] = [caption]
             self.delayed_captions[seconds(0.5)] = [caption]
@@ -973,6 +993,7 @@ class Level(object):
             #self.few_enemies_delay = seconds(8.5)
         elif self.wave == 1:
             players[0].machines_remaining = 2
+            players[0].score = 0
             players[0].bombs = 1
             if players[0].remove:
                 players[0].machines_remaining += 1
@@ -1013,6 +1034,8 @@ class Level(object):
                 return
             else:
                 players[0].explode()
+        if self.wave_message_delay:
+            self.wave_message_delay -= 1
         if self.game_over:
             self.game_over_time += 1
             if self.game_over_time == seconds(2.0):
@@ -1036,15 +1059,16 @@ class Level(object):
 
         if self.wave_frames > self.min_wave_time:
             total_enemies = len(enemies)
-            mandatory_pickups = [p for p in level.sprites if isinstance(p, Pickup) and p.mandatory()]
+            mandatory_pickups = [p for p in level.sprites if hasattr(p, 'mandatory_pickup')]
 
-            if total_enemies == 0 and len(mandatory_pickups) == 0:
-                level.new_wave()
-            elif self.few_enemies and total_enemies <= self.few_enemies:
-                if self.few_enemies_delay:
-                    self.few_enemies_delay -= 1
-                else:
+            if len(mandatory_pickups) == 0:
+                if total_enemies == 0:
                     level.new_wave()
+                elif self.few_enemies and total_enemies <= self.few_enemies:
+                    if self.few_enemies_delay:
+                        self.few_enemies_delay -= 1
+                    else:
+                        level.new_wave()
 
     def cull_sprites(self):
         self.sprites = [s for s in self.sprites if not s.remove]
