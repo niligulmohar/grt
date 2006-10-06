@@ -499,7 +499,10 @@ class Player(Sprite):
             big_spark_spray(bullet, 3, self.BULLET_SPEED, 0.3)
     def add_score(self, score, bonus = True):
         if bonus:
-            self.last_score = int(score * (min(self.bombs, 1)/2.0 + self.charge/2.5))
+            if self.bombs:
+                self.last_score = int(score * self.bombs/2.0 + self.charge/2.5)
+            else:
+                self.last_score = score
             if not (self.bomb_delay or self.remove):
                 self.charge += score / 3000.0
         else:
@@ -879,7 +882,7 @@ class Level(object):
         self.few_enemies_delay = seconds(10)
         self.cat_score = {}
         self.freeze_time = 0
-        self.max_freeze_time = seconds(0.6)
+        self.max_freeze_time = seconds(1.0)
         self.game_over = False
         self.game_over_time = 0
         self.pause = False
@@ -970,6 +973,7 @@ class Level(object):
             #self.few_enemies_delay = seconds(8.5)
         elif self.wave == 1:
             players[0].machines_remaining = 2
+            players[0].bombs = 1
             if players[0].remove:
                 players[0].machines_remaining += 1
             if not self.skipped_tutorial:
@@ -1015,7 +1019,7 @@ class Level(object):
                 #play_sound('gong')
                 pass
             if self.game_over_time == seconds(3.5):
-                caption = Caption(u"Tryck 1 för att starta om")
+                caption = Caption(u"Tryck START för att börja om")
                 caption.life = seconds(15)
                 caption.spawn()
         self.wave_frames += 1
