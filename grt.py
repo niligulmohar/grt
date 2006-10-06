@@ -154,6 +154,11 @@ joystick_maps = { 'HID 0b43:0003': { 'name': 'EMS Dualshooter',
 
 joysticks = [Joystick(pygame.joystick.Joystick(i)) for i in xrange(pygame.joystick.get_count())]
 
+reverse_keymap = {}
+for key in (k for k in dir(pygame) if k[0:2] == 'K_'):
+    code = getattr(pygame, key)
+    reverse_keymap[code] = 'pygame.' + key
+
 keymap = { 'undecided_keymap': True,
            pygame.K_1: start,
            pygame.K_p: start,
@@ -199,6 +204,7 @@ keymap_alts = [{ 'name': 'MAME-bindingar för Robotron',
 
 image_names = ['grass',
                'dark',
+               'death',
                'nili_gulmohar',
                'player',
                'bullet',
@@ -213,7 +219,7 @@ image_names = ['grass',
                'target',
                'bomb',
                'aura',
-               'enemy_placeholder']
+               'cat']
 
 images = {}
 
@@ -421,11 +427,11 @@ class Player(Sprite):
         self.maybe_spawn()
         self.bomb_delay = 0
         if self.machines_remaining < 2:
-            self.bombs = 1
+            self.bombs = 2
             self.bomb()
-        self.bombs = 0
+        self.bombs = 1
         self.charge = 0
-        level.reset_cat_score()
+        level.reset_all_cat_scores()
     def hittable(self):
         return self.invulnerability_delay == 0 and not self.remove
     def update(self):
@@ -446,6 +452,7 @@ class Player(Sprite):
         self.subtract_charge(0.001 * ((self.bombs + 1) ** 1.1))
     def bomb(self):
         if self.bomb_delay == 0 and self.bombs > 0:
+            level.freeze_time = 0
             play_sound('boohm', True)
             bullet = BombBlast()
             bullet.move(self)
@@ -492,7 +499,7 @@ class Player(Sprite):
             big_spark_spray(bullet, 3, self.BULLET_SPEED, 0.3)
     def add_score(self, score, bonus = True):
         if bonus:
-            self.last_score = int(score * (1 + self.bombs/2.0 + self.charge/2.5))
+            self.last_score = int(score * (min(self.bombs, 1)/2.0 + self.charge/2.5))
             if not (self.bomb_delay or self.remove):
                 self.charge += score / 3000.0
         else:
@@ -776,11 +783,13 @@ class Pickup(Sprite):
 class Cat(Pickup):
     SPEED = 2
     def initialize(self):
-        self.set_image(images['enemy_placeholder'])
-        self.square_radius = 32 ** 2
+        self.set_image(images['cat'])
+        self.square_radius = 48 ** 2
         self.direction = random.uniform(0, math.pi * 2)
         self.delta_direction = random.uniform(-0.01, 0.01)
+        self.facing_right = math.cos(self.direction) > 0
         self.speed = random.uniform(self.SPEED / 2, self.SPEED)
+        self.wave = level.wave
         self.will_escape = False
     def update(self):
         if random.randrange(16) == 0:
@@ -790,7 +799,10 @@ class Cat(Pickup):
         else:
             speed = self.speed
             self.direction += self.delta_direction
-        self.x += math.cos(self.direction) * speed
+        dx = math.cos(self.direction) * speed
+        self.x += dx
+        self.facing_right = dx > 0
+        self.frame = self.facing_right and 1 or 0
         self.y += math.sin(self.direction) * speed
         if self.will_escape:
             self.cull()
@@ -801,13 +813,13 @@ class Cat(Pickup):
         return False
     def pickup_by(self, player):
         Pickup.pickup_by(self, player)
-        player.add_score(level.cat_score, False)
+        player.add_score(level.cat_score[self.wave], False)
         score = Caption(player.last_score_text(), tiny_font)
         score.center_at(player)
         score.life = seconds(1.5)
         score.spawn()
-        if level.cat_score < 5000:
-            level.cat_score += 1000
+        if level.cat_score[self.wave] < 5000:
+            level.cat_score[self.wave] += 1000
 
 class Caption(Sprite):
     def initialize(self, text, font = caption_font):
@@ -865,7 +877,9 @@ class Level(object):
         self.min_wave_time = 0
         self.few_enemies = 0
         self.few_enemies_delay = seconds(10)
-        self.cat_score = 1000
+        self.cat_score = {}
+        self.freeze_time = 0
+        self.max_freeze_time = seconds(0.6)
         self.game_over = False
         self.game_over_time = 0
         self.pause = False
@@ -895,14 +909,17 @@ class Level(object):
             wisp.hittable = False
             wisp.spawn()
     def reset_cat_score(self):
-        self.cat_score = 1000
+        self.cat_score[self.wave] = 1000
+    def reset_all_cat_scores(self):
+        for k in self.cat_score.keys():
+            self.cat_score[k] = 1000
     def new_wave(self):
-        self.reset_cat_score()
         for cat in (c for c in self.sprites if isinstance(c, Cat)):
             cat.will_escape = True
         if self.wave < 1 and not self.game_over:
             self.captions = [c for c in self.captions if c.special]
         self.wave += 1
+        self.reset_cat_score()
         self.delayed_captions = {}
         self.wave_frames = 0
         if self.wave > 1 and not self.game_over:
@@ -986,6 +1003,12 @@ class Level(object):
             self.sprites += [Wisp(ProtoGrunt) for s in xrange(self.wave * 3)]
             self.spawn_cats(1)
     def update(self):
+        if self.freeze_time:
+            self.freeze_time -= 1
+            if self.freeze_time:
+                return
+            else:
+                players[0].explode()
         if self.game_over:
             self.game_over_time += 1
             if self.game_over_time == seconds(2.0):
@@ -1018,6 +1041,7 @@ class Level(object):
                     self.few_enemies_delay -= 1
                 else:
                     level.new_wave()
+
     def cull_sprites(self):
         self.sprites = [s for s in self.sprites if not s.remove]
         self.captions = [s for s in self.captions if not s.remove]
@@ -1039,15 +1063,16 @@ level.restart()
 
 def update():
     if not players[0].remove:
-        if move_up() and not move_down():
-            players[0].y -= players[0].SPEED
-        elif move_down() and not move_up():
-            players[0].y += players[0].SPEED
-        if move_left() and not move_right():
-            players[0].x -= players[0].SPEED
-        elif move_right() and not move_left():
-            players[0].x += players[0].SPEED
-        players[0].clamp_position()
+        if not level.freeze_time:
+            if move_up() and not move_down():
+                players[0].y -= players[0].SPEED
+            elif move_down() and not move_up():
+                players[0].y += players[0].SPEED
+            if move_left() and not move_right():
+                players[0].x -= players[0].SPEED
+            elif move_right() and not move_left():
+                players[0].x += players[0].SPEED
+            players[0].clamp_position()
 
         x = y = 0
         if fire_up() and not fire_down():
@@ -1058,7 +1083,7 @@ def update():
             x = -1
         elif fire_right() and not fire_left():
             x = 1
-        if x or y:
+        if (x or y) and not level.freeze_time:
             players[0].fire(x, y)
 
         t = pygame.time.get_ticks()
@@ -1066,6 +1091,9 @@ def update():
             players[0].bomb()
 
     level.update()
+
+    if level.freeze_time:
+        return
 
     for foo in chain(level.sprites, level.captions):
         foo.update()
@@ -1087,7 +1115,11 @@ def update():
     for enemy in [e for e in enemies if e.crashable]:
         for player in hittable_players:
             if player.touches(enemy):
-                player.explode()
+                if player.bombs:
+                    level.freeze_time = level.max_freeze_time
+                    play_sound('blippiblipp', True)
+                else:
+                    player.explode()
                 hittable_players.remove(player)
                 break
 
@@ -1127,6 +1159,17 @@ def redraw():
     screen.blit(images['grass'], (0,0))
     for sprite in level.sprites:
         sprite.draw()
+    if level.freeze_time:
+        fraction = level.freeze_time / float(level.max_freeze_time)
+        x = players[0].x
+        y = players[0].y
+        x0 = players[0].x * (1 - fraction)
+        x1 = x + (WIDTH - x) * fraction
+        y0 = players[0].y * (1 - fraction)
+        y1 = y + (HEIGHT - y) * fraction
+        w = x1-x0
+        h = y1-y0
+        screen.blit(images['death'], (x0,y0), (x0, y0, w, h))
     if level.game_over or level.pause:
         screen.blit(images['dark'], (0,0))
     for caption in level.captions:
@@ -1173,6 +1216,12 @@ while running:
             else:
                 if keymap.has_key(event.key):
                     keymap[event.key].set(True)
+                else:
+                    if reverse_keymap.has_key(event.key):
+                        name = reverse_keymap[event.key]
+                    else:
+                        name = '%d' % event.key
+                    print 'unbound key: %s' % name
         elif event.type == pygame.KEYUP:
             if keymap.has_key(event.key):
                 keymap[event.key].set(False)
@@ -1197,3 +1246,5 @@ while running:
         level.restart_or_pause()
 
     clock.tick(MAX_FPS)
+
+pygame.quit()
