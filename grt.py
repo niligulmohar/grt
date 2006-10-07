@@ -17,6 +17,11 @@ MAX_FPS = 45
 FLAGS = 0 #pygame.FULLSCREEN
 SOUND = True
 
+SAMPLE_RATE = 44100
+BUFFER_SIZE = 1024
+pygame.mixer.pre_init(SAMPLE_RATE, 0, 1, BUFFER_SIZE)
+EXPECTED_MUSIC_DELAY = BUFFER_SIZE * 1000.0 / SAMPLE_RATE * 2
+
 pygame.init()
 if not pygame.mixer.get_init():
     SOUND = False
@@ -94,11 +99,18 @@ class Joystick(object):
     def __init__(self, joy):
         self.joystick = joy
         self.name = joy.get_name()
+        joy.init()
         if joystick_maps.has_key(self.name):
-            joy.init()
             self.bindings = joystick_maps[self.name]
+        elif joy.get_numaxes() < 2:
+            print 'För få axlar (%d st) på joystick: %s' % (joy.get_numaxes(), self.name)
+            joy.quit()
+        elif joy.get_numbuttons() < 4:
+            print 'För få knappar (%d st) på joystick: %s' % (joy.get_numbuttons(), self.name)
+            joy.quit()
         else:
-            print 'Unrecognized joystick: %s' % self.name
+            print 'Känner inte igen joystick: %s' % self.name
+            joy.quit()
 
 joystick_maps = { 'HID 0b43:0003': { 'name': 'EMS Dualshooter',
                                      'axes': { 0: move_x,
@@ -159,14 +171,6 @@ for key in (k for k in dir(pygame) if k[0:2] == 'K_'):
     code = getattr(pygame, key)
     reverse_keymap[code] = 'pygame.' + key
 
-keymap = { 'undecided_keymap': True,
-           pygame.K_1: start,
-           pygame.K_p: start,
-           pygame.K_PAUSE: start,
-           'fire_keys': 'I J K L',
-           'move_keys': 'E S D F' }
-
-
 keymap_alts = [{ 'name': 'MAME-bindingar för Robotron',
                  pygame.K_e: move_up,
                  pygame.K_d: move_down,
@@ -200,6 +204,23 @@ keymap_alts = [{ 'name': 'MAME-bindingar för Robotron',
                  'fire_keys': 'R D F G',
                  'move_keys': 'piltangenterna' }]
 
+keymap = keymap_alts[0]
+
+keymap_select_map = {}
+
+class DuplicateKey(Exception):
+    pass
+
+for cur_keymap in keymap_alts:
+    for key in cur_keymap.keys():
+        try:
+            cmp_keymap_alts = keymap_alts[:]
+            cmp_keymap_alts.remove(cur_keymap)
+            if not key in chain((k.keys for k in keymap_alts)):
+                keymap_select_map[key] = cur_keymap
+        except DuplicateKey:
+            pass
+
 ######################################################################
 
 image_names = ['grass',
@@ -219,7 +240,9 @@ image_names = ['grass',
                'target',
                'bomb',
                'aura',
-               'cat']
+               'cat',
+               'turtle',
+               'snail']
 
 images = {}
 
@@ -253,35 +276,71 @@ def play_sound(name, priority = False, really_high_priority = True):
 
 ######################################################################
 
-songs = { 'sparrow': "GibIt - Please, Don't Eat The Sparrow",
-          'solitude': 'GibIt - Solitude of a Shapeless Outcast',
-          'perfect': "GibIt - 'Perfect'" }
 
-def play_music(song):
-    if SOUND:
-        pygame.mixer.music.stop()
-        pygame.mixer.music.load(os.path.join('data', song + '.ogg'))
-        pygame.mixer.music.play(-1)
-        songname = Caption(song, small_font)
-        w = songname.image.get_width()
-        x = WIDTH - w - 4
-        songname.target_x = x
-        songname.target_y = HEIGHT - 40
-        songname.displace_x = w + 40
-        songname.special = True
-        songname.life = seconds(7.5)
-        songname.spawn()
-        notes = Caption(images['eights'])
-        notes.special = True
-        notes.target_x = x - 40
-        notes.displace_x = w + 40
-        notes.target_y = HEIGHT - 40
-        notes.life = seconds(7.5)
-        notes.spawn()
+class Music(object):
+    class Song(object):
+        def __init__(self, name, bpm, bpb, intro_delay_bars = 0, intro_delay_s = 0):
+            self.name = name
+            self.bpm = bpm
+            self.bpb = bpb
+            self.intro_delay_bars = intro_delay_bars
+            self.intro_delay_ticks = intro_delay_s * 1000
+        def play(self):
+            pygame.mixer.music.stop()
+            pygame.mixer.music.load(os.path.join('data', self.name + '.ogg'))
+            pygame.mixer.music.play(-1)
+        def bars(self, ticks):
+            return (ticks - self.intro_delay_ticks - EXPECTED_MUSIC_DELAY) / 60000.0 * self.bpm / self.bpb - self.intro_delay_bars
 
-def stop_music():
-    if SOUND:
-        pygame.mixer.music.fadeout(2000)
+    songs = { 'sparrow': Song("GibIt - Please, Don't Eat The Sparrow", 151, 4, 0, 0.27),
+              'solitude': Song('GibIt - Solitude of a Shapeless Outcast', 154, 4, 0, 0.0533),
+              'perfect': Song("GibIt - 'Perfect'", 106, 4, 1/8.0, 0.0275) }
+
+    def __init__(self):
+        self.current_song = None
+    def play(self, song = None):
+        if SOUND:
+            if not song:
+                song = random.choice(self.songs.values())
+            else:
+                song = self.songs[song]
+            self.current_song = song
+            self.song_start_ticks = pygame.time.get_ticks()
+            song.play()
+            songname = Caption(song.name, small_font)
+            w = songname.image.get_width()
+            x = WIDTH - w - 4
+            songname.target_x = x
+            songname.target_y = HEIGHT - 40
+            songname.displace_x = w + 40
+            songname.special = True
+            songname.life = seconds(7.5)
+            songname.spawn()
+            notes = Caption(images['eights'])
+            notes.special = True
+            notes.target_x = x - 40
+            notes.displace_x = w + 40
+            notes.target_y = HEIGHT - 40
+            notes.life = seconds(7.5)
+            notes.spawn()
+
+    def stop(self):
+        if SOUND:
+            pygame.mixer.music.fadeout(2000)
+    def pause(self):
+        pygame.mixer.music.pause()
+        self.pause_ticks = pygame.time.get_ticks()
+    def unpause(self):
+        pygame.mixer.music.unpause()
+        now = pygame.time.get_ticks()
+        self.song_start_ticks += now - self.pause_ticks
+    def bars(self):
+        if self.current_song:
+            now = pygame.time.get_ticks()
+            return self.current_song.bars(now - self.song_start_ticks)
+        else:
+            return 0
+
 
 ######################################################################
 
@@ -531,7 +590,7 @@ class Player(Sprite):
         self.remove = True
         self.respawn_delay = seconds(1)
         if self.machines_remaining == 0:
-            stop_music()
+            music.stop()
             level.game_over = True
     def bomb_delay_fraction(self):
         return float(self.bomb_delay) / self.BOMB_DELAY
@@ -679,26 +738,43 @@ class ProtoGrunt(Enemy):
         self.phase %= self.PHASE_CYCLE
         self.frame = (self.phase / 5) % 2 + (self.facing_right and 2 or 0)
 class ProtoHulk(ProtoGrunt):
-    PHASE_CYCLE = seconds(2)
     def initialize(self):
         ProtoGrunt.initialize(self)
         self.set_image(images['proto_hulk'])
         self.destructible = False
+        self.closed_eyelids = True
+        self.blink()
+    def blink(self):
+        self.closed_eyelids = not self.closed_eyelids
+        if self.closed_eyelids:
+            self.blink_time = seconds(0.5)
+        else:
+            self.halt_movement = False
+            self.blink_time = int(random.uniform(seconds(1.2), seconds(2.5)))
     def update(self):
-        self.direction += self.delta_direction
-        if random.randrange(20) == 0:
-            self.delta_direction *= -1
-        x = math.cos(self.direction)
-        self.x += x * self.idle_speed
-        self.facing_right = x > 0
-        self.y += math.sin(self.direction) * self.idle_speed
-        if self.clamp_position():
-            self.direction += math.pi / 2
-        self.phase += 1
-        self.phase %= self.PHASE_CYCLE
-        self.frame = (self.phase > seconds(1.7) and 1 or 0) + (self.facing_right and 2 or 0)
+        if self.blink_time:
+            self.blink_time -= 1
+        else:
+            self.blink()
+        if not self.halt_movement:
+            self.direction += self.delta_direction
+            if random.randrange(20) == 0:
+                self.delta_direction *= -1
+            x = math.cos(self.direction)
+            self.x += x * self.idle_speed
+            self.facing_right = x > 0
+            self.y += math.sin(self.direction) * self.idle_speed
+            if self.clamp_position():
+                self.direction += math.pi / 2
+        self.frame = (self.closed_eyelids and 1 or 0) + (self.facing_right and 2 or 0)
     def explode(self, bullet):
-        pass
+        self.closed_eyelids = True
+        self.halt_movement = True
+        self.blink_time = seconds(1)
+        self.x += bullet.delta_x * 0.2
+        self.y += bullet.delta_y * 0.2
+        self.clamp_position()
+
 class RotatingSpray(Sprite):
     SPARK_SPEED = 18
     MAX_LIFE = 9
@@ -748,21 +824,24 @@ class Wisp(Enemy):
             if random.randrange(10) == 0:
                 self.visible = True
         self.frame = ((self.life / 3) + self.frame_phase) % 4
-        self.phase0 += self.delta_phase0
-        self.phase1 += self.delta_phase1
-        self.x = self.target_x + self.life * 3.0 * math.sin(self.phase0)
-        self.y = self.target_y + self.life * 3.0 * math.sin(self.phase1)
-        if random.randrange(13) == 0:
-            spark = Spark()
-            spark.move(self)
-            spark.spawn()
-        self.decrease_life()
-        if self.life == 0:
-            enemy = self.enemy_class()
-            enemy.move(self)
-            enemy.spawn()
-            play_sound('poof')
-            big_spark_sphere(self, 5, 7)
+        if self.life > 0:
+            self.phase0 += self.delta_phase0
+            self.phase1 += self.delta_phase1
+            self.x = self.target_x + self.life * 3.0 * math.sin(self.phase0)
+            self.y = self.target_y + self.life * 3.0 * math.sin(self.phase1)
+            if random.randrange(13) == 0:
+                spark = Spark()
+                spark.move(self)
+                spark.spawn()
+        self.life -= 1
+        if self.life <= 0:
+            if level.even_bar_start:
+                enemy = self.enemy_class()
+                enemy.move(self)
+                enemy.spawn()
+                play_sound('poof')
+                big_spark_sphere(self, 5, 7)
+                self.remove = True
 #         elif self.life < seconds(0.5):
 #             big_spark_sphere(self, 1, 13)
     def draw(self):
@@ -786,7 +865,7 @@ class Cat(Pickup):
     SPEED = 2
     def initialize(self):
         self.set_image(images['cat'])
-        self.square_radius = 48 ** 2
+        self.square_radius = 64 ** 2
         self.direction = random.uniform(0, math.pi * 2)
         self.delta_direction = random.uniform(-0.01, 0.01)
         self.facing_right = math.cos(self.direction) > 0
@@ -816,7 +895,7 @@ class Cat(Pickup):
     def pickup_by(self, player):
         Pickup.pickup_by(self, player)
         player.add_score(level.cat_score[self.wave], False)
-        score = Caption(player.last_score_text(), tiny_font)
+        score = Caption(player.last_score_text(), tiny_font, (0,255,0))
         score.center_at(player)
         score.life = seconds(1.5)
         score.spawn()
@@ -824,13 +903,13 @@ class Cat(Pickup):
             level.cat_score[self.wave] += 1000
 
 class Caption(Sprite):
-    def initialize(self, text, font = caption_font):
+    def initialize(self, text, font = caption_font, color = (255,255,255)):
         self.special = False
         if isinstance(text, pygame.Surface):
             self.image = text
             self.shadow = None
         else:
-            self.image = font.render(text, True, (255,255,255))
+            self.image = font.render(text, True, color)
             self.shadow = font.render(text, True, (0,0,0))
         self.life = seconds(3)
         self.center_at(HEIGHT / 2)
@@ -870,10 +949,12 @@ class Level(object):
         self.captions = []
         if skip_tutorial:
             self.wave = 0
-            play_music(random.choice(songs.values()))
+            music.play()
         else:
             self.wave = -5
-            play_music(songs['sparrow'])
+            music.play('perfect')
+        self.music_bars = -1
+        self.even_bar_start = False
         self.wave_message_delay = 0
         self.delayed_captions = {}
         self.wave_frames = 0
@@ -902,10 +983,10 @@ class Level(object):
             if SOUND:
                 if self.pause:
                     pygame.mixer.pause()
-                    pygame.mixer.music.pause()
+                    music.pause()
                 else:
                     pygame.mixer.unpause()
-                    pygame.mixer.music.unpause()
+                    music.unpause()
     def spawn_cats(self, n):
         for i in xrange(n):
             wisp = Wisp(Cat)
@@ -1028,6 +1109,10 @@ class Level(object):
             self.sprites += [Wisp(ProtoGrunt) for s in xrange(self.wave * 3)]
             self.spawn_cats(1)
     def update(self):
+        new_bars = int(music.bars())
+        self.even_bar_start = (new_bars != self.music_bars and new_bars % 2 == 0)
+        self.music_bars = new_bars
+
         if self.freeze_time:
             self.freeze_time -= 1
             if self.freeze_time:
@@ -1084,6 +1169,7 @@ class Level(object):
 
 players = [Player()]
 level = Level()
+music = Music()
 level.restart()
 #level.sprites += players
 
@@ -1143,7 +1229,7 @@ def update():
     for enemy in [e for e in enemies if e.crashable]:
         for player in hittable_players:
             if player.touches(enemy):
-                if player.bombs:
+                if player.bombs and not player.bomb_delay:
                     level.freeze_time = level.max_freeze_time
                     play_sound('blippiblipp', True)
                 else:
@@ -1162,9 +1248,12 @@ def update():
 
     for player in [p for p in players if p.machines_remaining]:
         if player.respawn_delay:
-            player.respawn_delay -= 1
-            if player.respawn_delay == 0:
-                player.respawn()
+            if player.respawn_delay == 1:
+                if level.even_bar_start:
+                    player.respawn_delay = 0
+                    player.respawn()
+            else:
+                player.respawn_delay -= 1
 
 BAR_MARGIN = 5
 BAR_WIDTH = 8
@@ -1211,6 +1300,31 @@ def redraw():
         x = text.get_width() + 8
         for i in xrange(players[0].machines_remaining):
             screen.blit(images['machine'], (x + i*34, HEIGHT - 40))
+    #bars = tiny_font.render('%d' % int(music.bars()), True, (255,0,0))
+    #screen.blit(bars, (WIDTH - bars.get_width(), HEIGHT - bars.get_height()))
+
+    fps = clock.get_fps()
+    if fps < MAX_FPS * 0.5:
+        color = (255,0,0)
+        image = images['snail']
+        fps_font = small_font
+    elif fps < MAX_FPS * 0.95:
+        color = (255,255,0)
+        image = images['turtle']
+        fps_font = small_font
+    else:
+        color = (128,128,128)
+        image = None
+        fps_font = tiny_font
+    text = '%d fps' % fps
+    fps_shadow = fps_font.render(text, True, (0,0,0))
+    fps_text = fps_font.render(text, True, color)
+    w = fps_shadow.get_width()
+    screen.blit(fps_shadow, (WIDTH - w, 2))
+    screen.blit(fps_text, (WIDTH - w - 2, 0))
+    if image:
+        screen.blit(image, (WIDTH - w - 64, -16))
+
     max_bombs = max(players[0].bombs + 1, 4)
     if players[0].bomb_delay > 0:
         draw_bars(players[0].bombs, max_bombs, players[0].bomb_delay_fraction(), True)
@@ -1235,21 +1349,18 @@ while running:
                 running = False
             elif event.key == pygame.K_RETURN and event.mod:
                 pygame.display.toggle_fullscreen()
-            elif keymap.has_key('undecided_keymap'):
-                for alt in keymap_alts:
-                    if alt.has_key(event.key):
-                        keymap = alt
-                        keymap[event.key].set(True)
-                        break
-            else:
-                if keymap.has_key(event.key):
+            elif keymap.has_key(event.key):
                     keymap[event.key].set(True)
+            elif keymap_select_map.has_key(event.key):
+                keymap = keymap_select_map[event.key]
+                print 'Magiskt keymapbyte till: %s' % keymap['name']
+                keymap[event.key].set(True)
+            else:
+                if reverse_keymap.has_key(event.key):
+                    name = reverse_keymap[event.key]
                 else:
-                    if reverse_keymap.has_key(event.key):
-                        name = reverse_keymap[event.key]
-                    else:
-                        name = '%d' % event.key
-                    print 'unbound key: %s' % name
+                    name = '%d' % event.key
+                print 'Obunden tangent: %s' % name
         elif event.type == pygame.KEYUP:
             if keymap.has_key(event.key):
                 keymap[event.key].set(False)
@@ -1258,7 +1369,7 @@ while running:
             if buttons.has_key(event.button):
                 buttons[event.button].set(True)
             else:
-                print 'unbound button %d on %s' % (event.button, joysticks[event.joy].name)
+                print 'Obunden knapp %d på %s' % (event.button, joysticks[event.joy].name)
         elif event.type == pygame.JOYBUTTONUP:
             buttons = joysticks[event.joy].bindings['buttons']
             if buttons.has_key(event.button):
@@ -1268,7 +1379,7 @@ while running:
             if axes.has_key(event.axis):
                 axes[event.axis].set(event.value)
             else:
-                print 'unbound axis %d on %s' % (event.axis, joysticks[event.joy].name)
+                print 'Obunden axel %d på %s' % (event.axis, joysticks[event.joy].name)
 
     if start.get_triggered():
         level.restart_or_pause()
