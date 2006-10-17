@@ -13,6 +13,19 @@ START_FULLSCREEN_SMALL_SCREEN = True
 HWSURFACE = True
 SOUND = True
 MIXER_PRE_INIT = False
+WRONG_SAMPLE_RATE_FACTOR = 1
+#WRONG_SAMPLE_RATE_FACTOR = 48000/44100.0
+
+######################################################################
+
+ENEMY_AMOUNT_SCALE = 0.5
+GRACE_TIME_SCALE = 2.0
+
+def enemies(amt):
+    return int(round(amt * ENEMY_AMOUNT_SCALE))
+
+def grace_time(t):
+    return t * GRACE_TIME_SCALE
 
 ######################################################################
 
@@ -47,7 +60,8 @@ if MIXER_PRE_INIT:
 else:
     SAMPLE_RATE = 22050
     BUFFER_SIZE = 1024
-EXPECTED_MUSIC_DELAY = BUFFER_SIZE * 1000.0 / SAMPLE_RATE * 2
+#EXPECTED_MUSIC_DELAY = BUFFER_SIZE * 1000.0 / SAMPLE_RATE * 2 / WRONG_SAMPLE_RATE_FACTOR
+EXPECTED_MUSIC_DELAY = 0
 
 pygame.init()
 if pygame.mixer.get_init():
@@ -288,7 +302,9 @@ image_names = ['grass',
                'aura',
                'cat',
                'turtle',
-               'snail']
+               'snail',
+               'esdf',
+               'ijkl']
 
 images = {}
 
@@ -338,7 +354,7 @@ class Music(object):
             pygame.mixer.music.play(0)
             pygame.mixer.music.set_endevent(END_MUSIC_EVENT)
         def bars(self, ticks):
-            return (ticks - self.intro_delay_ticks - EXPECTED_MUSIC_DELAY) / 60000.0 * self.bpm / self.bpb - self.intro_delay_bars
+            return (ticks - self.intro_delay_ticks - EXPECTED_MUSIC_DELAY) / 60000.0 * WRONG_SAMPLE_RATE_FACTOR * self.bpm / self.bpb - self.intro_delay_bars
 
     songs = { 'sparrow': Song("GibIt - Please, Don't Eat The Sparrow", 151, 4, 0, 0.27),
               'solitude': Song('GibIt - Solitude of a Shapeless Outcast', 154, 4, 0, 0.0533),
@@ -386,7 +402,7 @@ class Music(object):
         self.current_song = None
         self.stopped = True
         if SOUND:
-            pygame.mixer.music.fadeout(2000)
+            pygame.mixer.music.fadeout(7000)
     def pause(self):
         self.pause_ticks = pygame.time.get_ticks()
         if SOUND:
@@ -701,7 +717,7 @@ class Bullet(Sprite):
         self.y += self.delta_y
         self.square_radius *= self.radius_coefficent
         self.cull()
-        if self.remove:
+        if self.remove and self.owner:
             self.owner.subtract_charge(0.005)
         if random.randrange(8) == 0:
             spark = Spark()
@@ -715,7 +731,7 @@ class BadBullet(Bullet):
     def initialize(self):
         Bullet.initialize(self)
         self.set_image(images['ball'])
-        self.square_radius = 0
+        self.square_radius = 11 ** 2
         self.radius_coefficent = 0
 
 class BombBlast(GoodBullet):
@@ -773,7 +789,10 @@ class MegaSpark(Sprite):
         s = (random.expovariate(1) + 0.6) * pixels_per_second(300)
         self.delta_x = math.cos(a) * s
         self.delta_y = math.sin(a) * s
-        self.life = seconds(random.uniform(1, 3))
+        if players[0].machines_remaining == 0:
+            self.life = seconds(10)
+        else:
+            self.life = seconds(random.uniform(1, 3))
         self.type = random.choice([0, 4])
         if players[0].machines_remaining == 1:
             self.phase = int((r * 2 + s * -0.04) * self.PHASE_CYCLE) % self.PHASE_CYCLE
@@ -972,17 +991,25 @@ class ProtoEnforcer(Enemy, SineFlyer, Fairy):
         self.update_position()
         self.facing_right = self.x > old_x and 2 or 0
         self.update_fairy_animation()
+        if level.bar_start and players[0].hittable():
+            bullet = BadBullet()
+            bullet.move(self)
+            x, y = bullet.direction_to(players[0])
+            x *= Player.SPEED / 2
+            y *= Player.SPEED / 2
+            bullet.delta_x, bullet.delta_y = x, y
+            bullet.spawn()
 
 class RotatingSpray(Sprite):
-    SPARK_SPEED = pixels_per_second(300)
-    MAX_LIFE = seconds(0.45)
+    SPARK_SPEED = pixels_per_second(500)
+    MAX_LIFE = seconds(0.66)
     def initialize(self):
         self.life = self.MAX_LIFE
         self.visible = False
         self.direction = random.uniform(0, math.pi * 2)
     def update(self):
-        self.direction += 1.1
-        for i in xrange(11):
+        self.direction -= 1.1
+        for i in xrange(23):
             spark = BigSpark()
             spark.move(self)
             life_factor = (1 + self.life / float(self.MAX_LIFE))
@@ -1037,7 +1064,7 @@ class Wisp(Enemy):
                 enemy = self.enemy_class()
                 enemy.move(self)
                 enemy.spawn()
-                play_sound('poof')
+                #play_sound('poof')
                 big_spark_sphere(self, 5, 7)
                 self.remove = True
 #         elif self.life < seconds(0.5):
@@ -1162,8 +1189,8 @@ class Level(object):
         self.wave_frames = 0
         self.min_wave_time = 0
         self.few_enemies = 0
-        self.few_enemies_delay = seconds(10)
-        self.max_laziness_delay = seconds(20)
+        self.few_enemies_delay = seconds(grace_time(10))
+        self.max_laziness_delay = seconds(grace_time(20))
         self.laziness_delay = self.max_laziness_delay
         self.cat_score = {}
         self.freeze_time = 0
@@ -1300,36 +1327,36 @@ class Level(object):
                 caption.displace_y = -HEIGHT
                 self.delayed_captions[seconds(0.5)] = [caption]
             self.few_enemies = 5
-            self.few_enemies_delay = seconds(1.5)
-            self.sprites += [Wisp(ProtoGrunt) for s in xrange(17)]
-            self.sprites += [Wisp(ProtoHulk) for s in xrange(1)]
+            self.few_enemies_delay = seconds(grace_time(1.5))
+            self.sprites += [Wisp(ProtoGrunt) for s in xrange(enemies(17))]
+            self.sprites += [Wisp(ProtoHulk) for s in xrange(enemies(1))]
             self.spawn_cats(3)
         elif self.wave == 2:
-            self.sprites += [Wisp(ProtoGrunt) for s in xrange(50)]
+            self.sprites += [Wisp(ProtoGrunt) for s in xrange(enemies(50))]
             self.spawn_cats(4)
-            self.sprites += [Wisp(ProtoHulk) for s in xrange(2)]
-            self.sprites += [ProtoSphereoid() for n in xrange(1)]
+            self.sprites += [Wisp(ProtoHulk) for s in xrange(enemies(2))]
+            self.sprites += [ProtoSphereoid() for n in xrange(enemies(1))]
         elif self.wave == 3:
-            self.sprites += [Wisp(ProtoGrunt) for s in xrange(60)]
+            self.sprites += [Wisp(ProtoGrunt) for s in xrange(enemies(60))]
             self.spawn_cats(5)
-            self.sprites += [Wisp(ProtoHulk) for s in xrange(2)]
-            self.sprites += [ProtoSphereoid() for n in xrange(2)]
+            self.sprites += [Wisp(ProtoHulk) for s in xrange(enemies(2))]
+            self.sprites += [ProtoSphereoid() for n in xrange(enemies(2))]
         elif self.wave == 4:
-            self.sprites += [Wisp(ProtoGrunt) for s in xrange(70)]
+            self.sprites += [Wisp(ProtoGrunt) for s in xrange(enemies(70))]
             self.spawn_cats(6)
-            self.sprites += [Wisp(ProtoHulk) for s in xrange(2)]
-            self.sprites += [ProtoSphereoid() for n in xrange(3)]
+            self.sprites += [Wisp(ProtoHulk) for s in xrange(enemies(2))]
+            self.sprites += [ProtoSphereoid() for n in xrange(enemies(3))]
         elif self.wave == 5:
             self.few_enemies = 0
-            self.sprites += [Wisp(ProtoGrunt) for s in xrange(80)]
+            self.sprites += [Wisp(ProtoGrunt) for s in xrange(enemies(80))]
             self.spawn_cats(7)
-            self.sprites += [ProtoSphereoid() for n in xrange(4)]
+            self.sprites += [ProtoSphereoid() for n in xrange(enemies(4))]
         elif self.wave > 5:
-            self.max_laziness_delay = seconds(7.5)
+            self.max_laziness_delay = seconds(grace_time(7.5))
             self.few_enemies = 100
-            self.few_enemies_delay = seconds(3.5)
-            self.sprites += [Wisp(ProtoGrunt) for s in xrange(self.wave * 3)]
-            self.sprites += [ProtoSphereoid() for n in xrange(2)]
+            self.few_enemies_delay = seconds(grace_time(3.5))
+            self.sprites += [Wisp(ProtoGrunt) for s in xrange(enemies(self.wave * 3))]
+            self.sprites += [ProtoSphereoid() for n in xrange(enemies(2))]
             self.spawn_cats(2)
         self.reset_laziness_delay()
     def update(self):
@@ -1475,9 +1502,10 @@ def update():
                 enemy.explode(bullet)
 
     hittable_players = [p for p in players if p.hittable()]
-    for enemy in [e for e in enemies if e.crashable]:
+    hazards = [e for e in enemies if e.crashable] + [s for s in level.sprites if isinstance(s, BadBullet)]
+    for hazard in hazards:
         for player in hittable_players:
-            if player.touches(enemy):
+            if player.touches(hazard):
                 if player.bombs >= 2 and not player.bomb_delay:
                     level.freeze_time = level.max_freeze_time
                     play_sound('blippiblipp', True)
@@ -1588,6 +1616,7 @@ def redraw():
 ######################################################################
 
 running = True
+first_frame = True
 clock = pygame.time.Clock()
 
 while running:
@@ -1595,45 +1624,50 @@ while running:
         update()
     redraw()
 
-    for event in pygame.event.get():
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
-                running = False
-            elif event.key == pygame.K_RETURN and event.mod:
-                pygame.display.toggle_fullscreen()
-            elif keymap.has_key(event.key):
+    if first_frame:
+        for event in pygame.event.get():
+            pass
+        first_frame = False
+    else:
+        for event in pygame.event.get():
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                elif event.key == pygame.K_RETURN and event.mod:
+                    pygame.display.toggle_fullscreen()
+                elif keymap.has_key(event.key):
+                        keymap[event.key].set(True)
+                elif keymap_select_map.has_key(event.key):
+                    keymap = keymap_select_map[event.key]
+                    print 'Magiskt keymapbyte till: %s' % keymap['name']
                     keymap[event.key].set(True)
-            elif keymap_select_map.has_key(event.key):
-                keymap = keymap_select_map[event.key]
-                print 'Magiskt keymapbyte till: %s' % keymap['name']
-                keymap[event.key].set(True)
-            else:
-                if reverse_keymap.has_key(event.key):
-                    name = reverse_keymap[event.key]
                 else:
-                    name = '%d' % event.key
-                print 'Obunden tangent: %s' % name
-        elif event.type == pygame.KEYUP:
-            if keymap.has_key(event.key):
-                keymap[event.key].set(False)
-        elif event.type == pygame.JOYBUTTONDOWN:
-            buttons = joysticks[event.joy].bindings['buttons']
-            if buttons.has_key(event.button):
-                buttons[event.button].set(True)
-            else:
-                print 'Obunden knapp %d på %s' % (event.button, joysticks[event.joy].name)
-        elif event.type == pygame.JOYBUTTONUP:
-            buttons = joysticks[event.joy].bindings['buttons']
-            if buttons.has_key(event.button):
-                buttons[event.button].set(False)
-        elif event.type == pygame.JOYAXISMOTION:
-            axes = joysticks[event.joy].bindings['axes']
-            if axes.has_key(event.axis):
-                axes[event.axis].set(event.value)
-            else:
-                print 'Obunden axel %d på %s' % (event.axis, joysticks[event.joy].name)
-        elif event.type == END_MUSIC_EVENT:
-            music.next()
+                    if reverse_keymap.has_key(event.key):
+                        name = reverse_keymap[event.key]
+                    else:
+                        name = '%d' % event.key
+                    print 'Obunden tangent: %s' % name
+            elif event.type == pygame.KEYUP:
+                if keymap.has_key(event.key):
+                    keymap[event.key].set(False)
+            elif event.type == pygame.JOYBUTTONDOWN:
+                buttons = joysticks[event.joy].bindings['buttons']
+                if buttons.has_key(event.button):
+                    buttons[event.button].set(True)
+                else:
+                    print 'Obunden knapp %d på %s' % (event.button, joysticks[event.joy].name)
+            elif event.type == pygame.JOYBUTTONUP:
+                buttons = joysticks[event.joy].bindings['buttons']
+                if buttons.has_key(event.button):
+                    buttons[event.button].set(False)
+            elif event.type == pygame.JOYAXISMOTION:
+                axes = joysticks[event.joy].bindings['axes']
+                if axes.has_key(event.axis):
+                    axes[event.axis].set(event.value)
+                else:
+                    print 'Obunden axel %d på %s' % (event.axis, joysticks[event.joy].name)
+            elif event.type == END_MUSIC_EVENT:
+                music.next()
     if start.get_triggered():
         level.restart_or_pause()
 
