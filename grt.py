@@ -12,14 +12,14 @@ START_FULLSCREEN_LARGE_SCREEN = False
 START_FULLSCREEN_SMALL_SCREEN = True
 HWSURFACE = True
 SOUND = True
-MIXER_PRE_INIT = False
+MIXER_PRE_INIT = True
 WRONG_SAMPLE_RATE_FACTOR = 1
 #WRONG_SAMPLE_RATE_FACTOR = 48000/44100.0
 
 ######################################################################
 
-ENEMY_AMOUNT_SCALE = 0.5
-GRACE_TIME_SCALE = 2.0
+ENEMY_AMOUNT_SCALE = 1.0
+GRACE_TIME_SCALE = 1.0
 
 def enemies(amt):
     return int(round(amt * ENEMY_AMOUNT_SCALE))
@@ -60,8 +60,8 @@ if MIXER_PRE_INIT:
 else:
     SAMPLE_RATE = 22050
     BUFFER_SIZE = 1024
-#EXPECTED_MUSIC_DELAY = BUFFER_SIZE * 1000.0 / SAMPLE_RATE * 2 / WRONG_SAMPLE_RATE_FACTOR
-EXPECTED_MUSIC_DELAY = 0
+EXPECTED_MUSIC_DELAY = BUFFER_SIZE * 1000.0 / SAMPLE_RATE * 2 / WRONG_SAMPLE_RATE_FACTOR
+#EXPECTED_MUSIC_DELAY = 0
 
 pygame.init()
 if pygame.mixer.get_init():
@@ -90,8 +90,20 @@ pygame.mouse.set_visible(False)
 
 ######################################################################
 
+files = {}
+
+def index_directory(none, directory, filenames):
+    if directory.count(".svn") == 0:
+        for f in filenames:
+            files[f] = os.path.join(directory, f)
+
+os.path.walk('data', index_directory, None)
+print files
+
+######################################################################
+
 def make_font(name, size):
-    return pygame.font.Font(os.path.join('data', name + '.ttf'), size)
+    return pygame.font.Font(files[name + '.ttf'], size)
 
 tiny_font, small_font, font, caption_font = (make_font('Titania-Regular', size) for size in (20, 32, 36, 48))
 
@@ -309,7 +321,7 @@ image_names = ['grass',
 images = {}
 
 for name in image_names:
-    surf = pygame.image.load(os.path.join('data', name + '.png'))
+    surf = pygame.image.load(files[name + '.png'])
     images[name] = surf.convert_alpha()
 
 ######################################################################
@@ -326,7 +338,7 @@ sounds = {}
 
 if SOUND:
     for name in sound_names:
-        sounds[name] = pygame.mixer.Sound(os.path.join('data', name + '.wav'))
+        sounds[name] = pygame.mixer.Sound(files[name + '.wav'])
 
 def play_sound(name, priority = False, really_high_priority = True):
     if SOUND:
@@ -350,11 +362,13 @@ class Music(object):
             self.intro_delay_ticks = intro_delay_s * 1000
         def play(self):
             pygame.mixer.music.stop()
-            pygame.mixer.music.load(os.path.join('data', self.name + '.ogg'))
+            pygame.mixer.music.load(files[self.name + '.ogg'])
             pygame.mixer.music.play(0)
             pygame.mixer.music.set_endevent(END_MUSIC_EVENT)
         def bars(self, ticks):
             return (ticks - self.intro_delay_ticks - EXPECTED_MUSIC_DELAY) / 60000.0 * WRONG_SAMPLE_RATE_FACTOR * self.bpm / self.bpb - self.intro_delay_bars
+        def beats(self, ticks):
+            return (ticks - self.intro_delay_ticks - EXPECTED_MUSIC_DELAY) / 60000.0 * self.bpm - (self.intro_delay_bars * self.bpb)
 
     songs = { 'sparrow': Song("GibIt - Please, Don't Eat The Sparrow", 151, 4, 0, 0.27),
               'solitude': Song('GibIt - Solitude of a Shapeless Outcast', 154, 4, 0, 0.0533),
@@ -389,6 +403,7 @@ class Music(object):
             songname.displace_x = w + 40
             songname.special = True
             songname.life = seconds(7.5)
+            songname.beat_displace = 2
             songname.spawn()
             notes = Caption(images['eights'])
             notes.special = True
@@ -396,6 +411,7 @@ class Music(object):
             notes.displace_x = w + 40
             notes.target_y = HEIGHT - 40
             notes.life = seconds(7.5)
+            notes.beat_displace = 12
             notes.spawn()
 
     def stop(self):
@@ -416,6 +432,12 @@ class Music(object):
         if self.current_song:
             now = pygame.time.get_ticks()
             return self.current_song.bars(now - self.song_start_ticks)
+        else:
+            return 0
+    def beats(self):
+        if self.current_song:
+            now = pygame.time.get_ticks()
+            return self.current_song.beats(now - self.song_start_ticks)
         else:
             return 0
 
@@ -745,7 +767,7 @@ class BombBlast(GoodBullet):
         self.life = 12
         self.perish = False
     def update(self):
-        self.frame = 4 - int(math.ceil(self.life/ 3.0))
+        self.frame = 4 - int(math.ceil(self.life / 3.0))
         self.decrease_life()
         self.cull()
 
@@ -1140,6 +1162,7 @@ class Caption(Sprite):
         self.center_at(HEIGHT / 2)
         self.displace_x = 0
         self.displace_y = 0
+        self.beat_displace = 0
     def center_at(self, arg):
         if hasattr(arg, "x"):
             self.x = arg.x - self.image.get_width() / 2
@@ -1155,6 +1178,10 @@ class Caption(Sprite):
                 screen.blit(self.shadow, (self.x + 3, self.y + 3))
             screen.blit(self.image, (self.x, self.y))
     def update(self):
+        if self.beat_displace and level.beat_start:
+            a = random.uniform(0, math.pi * 2)
+            self.displace_x += math.cos(a) * self.beat_displace
+            self.displace_y += math.sin(a) * self.beat_displace
         self.displace_x *= 0.92
         self.displace_y *= 0.92
         self.x = self.target_x + self.displace_x
@@ -1184,6 +1211,8 @@ class Level(object):
         self.music_bars = -1
         self.bar_start = False
         self.even_bar_start = False
+        self.music_beats = -1
+        self.beat_start = False
         self.wave_message_delay = 0
         self.delayed_captions = {}
         self.wave_frames = 0
@@ -1359,12 +1388,15 @@ class Level(object):
             self.sprites += [ProtoSphereoid() for n in xrange(enemies(2))]
             self.spawn_cats(2)
         self.reset_laziness_delay()
-    def update(self):
+    def start_frame(self):
         new_bars = int(music.bars())
         self.bar_start = (new_bars != self.music_bars)
         self.even_bar_start = (new_bars != self.music_bars and new_bars % 2 == 0)
         self.music_bars = new_bars
-
+        new_beats = int(music.beats())
+        self.beat_start = (new_beats != self.music_beats)
+        self.music_beats = new_beats
+    def update(self):
         if self.freeze_time:
             self.freeze_time -= 1
             if self.freeze_time:
@@ -1452,6 +1484,7 @@ level.restart()
 ######################################################################
 
 def update():
+    level.start_frame()
     if not players[0].remove:
         if not level.freeze_time:
             if move_up() and not move_down():
