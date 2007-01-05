@@ -31,7 +31,8 @@ def grace_time(t):
 
 VERSION = 0.2
 
-import os.path, random, math
+import os.path, math, time, pickle, sys, gzip
+import random as random_module
 from itertools import chain
 import pygame
 
@@ -98,7 +99,6 @@ def index_directory(none, directory, filenames):
             files[f] = os.path.join(directory, f)
 
 os.path.walk('data', index_directory, None)
-print files
 
 ######################################################################
 
@@ -111,13 +111,15 @@ tiny_font, small_font, font, caption_font = (make_font('Titania-Regular', size) 
 
 class Button(object):
     def __init__(self):
+        self.reset()
+    def reset(self):
         self.state = False
-        self.last_push_time = -1000
+        self.last_push_frame = -1000
         self.triggered = False
     def set(self, state):
         self.state = state
         if state:
-            self.last_push_time = pygame.time.get_ticks()
+            self.last_push_frame = level.frames
             self.triggered = True
     def maybe_set(self, state):
         if state != self.state:
@@ -156,6 +158,11 @@ fire_down = Button()
 fire_left = Button()
 fire_right = Button()
 start = Button()
+
+beat_start = Button()
+bar_start = Button()
+even_bar_start = Button()
+all_buttons = [move_up, move_down, move_left, move_right, fire_up, fire_down, fire_left, fire_right, start, beat_start, bar_start, even_bar_start]
 
 move_y = Axis(move_up, move_down)
 move_x = Axis(move_left, move_right)
@@ -269,7 +276,21 @@ keymap_alts = [{ 'name': 'MAME-bindingar för Robotron',
                  pygame.K_p: start,
                  pygame.K_PAUSE: start,
                  'fire_keys': 'R D F G',
-                 'move_keys': 'piltangenterna' }]
+                 'move_keys': 'piltangenterna' },
+               { 'name': 'Egilbindningar',
+                 pygame.K_i: move_up,
+                 pygame.K_o: move_down,
+                 pygame.K_j: move_left,
+                 246: move_right,
+                 pygame.K_e: fire_up,
+                 pygame.K_w: fire_down,
+                 pygame.K_a: fire_left,
+                 pygame.K_f: fire_right,
+                 pygame.K_1: start,
+                 pygame.K_p: start,
+                 pygame.K_PAUSE: start,
+                 'fire_keys': 'A W E F',
+                 'move_keys': u'J I O Ö' },]
 
 keymap = keymap_alts[0]
 
@@ -287,6 +308,60 @@ for cur_keymap in keymap_alts:
                 keymap_select_map[key] = cur_keymap
         except DuplicateKey:
             pass
+
+######################################################################
+
+def source_code():
+    src = file(sys.argv[0], 'r')
+    result = src.read()
+    src.close()
+    return result
+
+class DemoRecorder(object):
+    FORMAT = '%Y-%m-%d %H.%M.%S.grtdemo'
+    def __init__(self, buttons):
+        self.recording = False
+        self.playing = False
+        self.freeze = False
+        self.buttons = buttons
+    def play(self, filename):
+        self.playing = True
+        f = gzip.open(filename, 'r')
+        source = pickle.load(f)
+        if source != source_code():
+            print 'Varning: Demot kan vara inkompatibelt med den här versionen!'
+        self.frames = pickle.load(f)
+        f.close()
+        self.frame = 1
+        random.setstate(self.frames[0])
+    def record(self):
+        self.recording = True
+        self.filename = time.strftime(self.FORMAT)
+        self.state = [False for f in self.buttons]
+        self.frames = [random.getstate()]
+    def stop(self):
+        if self.recording:
+            f = gzip.open(self.filename, 'w')
+            pickle.dump(source_code(), f)
+            pickle.dump(self.frames, f)
+            f.close()
+            self.recording = False
+        if self.playing:
+            self.playing = False
+            music.stop()
+            self.freeze = True
+    def advance_frame(self):
+        if self.recording:
+            state = [(b.state, b.triggered) for b in self.buttons]
+            self.frames.append(state)
+        elif self.playing:
+            if self.frame >= len(self.frames):
+                self.stop()
+            else:
+                state = self.frames[self.frame]
+                for s, b in zip(state, self.buttons):
+                    b.set(s[0])
+                self.frame += 1
 
 ######################################################################
 
@@ -581,6 +656,12 @@ class Player(Sprite):
 
     def initialize(self):
         self.set_image(images['player'])
+        self.invulnerability_delay = 0
+        self.machines_remaining = 0
+        self.score = 0
+        self.bombs = 0
+        self.bomb_delay = 0
+        self.charge = 0
     def reset(self):
         self.score = 0
         self.last_score = 0
@@ -607,7 +688,7 @@ class Player(Sprite):
             self.bomb()
         self.bombs = 1
         self.charge = 0
-        level.reset_all_cat_scores()
+        level.player_respawn()
     def hittable(self):
         return self.invulnerability_delay == 0 and not self.remove
     def update(self):
@@ -833,12 +914,14 @@ class Enemy(Sprite):
         self.set_image(images['fairy'])
         self.random_position()
         self.square_radius = 16 ** 2
+        self.birthtime = level.frames
         self.value = 0
         self.hittable = True
         self.crashable = True
         self.destructible = True
     def explode(self, bullet):
         self.remove = True
+        level.enemy_destroyed
         bullet.owner.add_score(self.value, self.value < 1000)
         score = Caption(bullet.owner.last_score_text(), tiny_font)
         score.center_at(self)
@@ -851,6 +934,7 @@ class Enemy(Sprite):
         level.renew_bg_around(self)
         play_sound('snare')
         level.reset_laziness_delay()
+        level.enemy_destroyed(self)
 class Fairy(object):
     PHASE_CYCLE = 10
     def setup_fairy_animation(self):
@@ -1013,7 +1097,7 @@ class ProtoEnforcer(Enemy, SineFlyer, Fairy):
         self.update_position()
         self.facing_right = self.x > old_x and 2 or 0
         self.update_fairy_animation()
-        if level.bar_start and players[0].hittable():
+        if bar_start() and players[0].hittable():
             bullet = BadBullet()
             bullet.move(self)
             x, y = bullet.direction_to(players[0])
@@ -1082,8 +1166,9 @@ class Wisp(Enemy):
                 spark.spawn()
         self.life -= 1
         if self.life <= 0:
-            if level.even_bar_start:
+            if even_bar_start():
                 enemy = self.enemy_class()
+                enemy.birthtime = self.birthtime
                 enemy.move(self)
                 enemy.spawn()
                 #play_sound('poof')
@@ -1178,8 +1263,8 @@ class Caption(Sprite):
                 screen.blit(self.shadow, (self.x + 3, self.y + 3))
             screen.blit(self.image, (self.x, self.y))
     def update(self):
-        if self.beat_displace and level.beat_start:
-            a = random.uniform(0, math.pi * 2)
+        if self.beat_displace and beat_start():
+            a = extra_random.uniform(0, math.pi * 2)
             self.displace_x += math.cos(a) * self.beat_displace
             self.displace_y += math.sin(a) * self.beat_displace
         self.displace_x *= 0.92
@@ -1194,49 +1279,56 @@ class Caption(Sprite):
 
 class Level(object):
     def __init__(self):
-        pass
-    def restart(self, skip_tutorial = False):
-        self.bg = pygame.Surface((WIDTH, HEIGHT))
-        self.new_bg = images['living_grass']
-        self.bg.blit(images['grass'], (0,0))
-        self.skipped_tutorial = skip_tutorial
+        self.frames = -1
         self.sprites = []
         self.captions = []
-        if skip_tutorial:
-            self.wave = 0
-            music.play()
-        else:
-            self.wave = -5
-            music.play('sparrow')
-        self.music_bars = -1
-        self.bar_start = False
-        self.even_bar_start = False
-        self.music_beats = -1
-        self.beat_start = False
-        self.wave_message_delay = 0
-        self.delayed_captions = {}
-        self.wave_frames = 0
-        self.min_wave_time = 0
-        self.few_enemies = 0
-        self.few_enemies_delay = seconds(grace_time(10))
-        self.max_laziness_delay = seconds(grace_time(20))
-        self.laziness_delay = self.max_laziness_delay
-        self.cat_score = {}
         self.freeze_time = 0
+        self.wave = 0
+        self.game_over = False
+        self.pause = False
+        bar_start.set(False)
+        even_bar_start.set(False)
+        self.music_bars = -1
+        beat_start.set(False)
+        self.music_beats = -1
         self.max_freeze_time = seconds(1.0)
+        self.bg = pygame.Surface((WIDTH, HEIGHT))
+    def cull_sprites(self):
+        self.sprites = [s for s in self.sprites if not s.remove]
+        self.captions = [s for s in self.captions if not s.remove]
+    def restart(self, skip_tutorial = False):
+        self.sprites = []
+        self.captions = []
+        self.frames = -1
+        self.freeze_time = 0
         self.game_over = False
         self.game_over_time = 0
         self.pause = False
         for player in players:
             player.reset()
+    def start_frame(self):
+        self.frames += 1
+        new_bars = int(music.bars())
+        if not demo.playing:
+            bar_start.set(new_bars != self.music_bars)
+            even_bar_start.set(new_bars != self.music_bars and new_bars % 2 == 0)
+        self.music_bars = new_bars
+        new_beats = int(music.beats())
+        if not demo.playing:
+            beat_start.set(new_beats != self.music_beats)
+        self.music_beats = new_beats
+    def update(self):
+        if self.freeze_time:
+            self.freeze_time -= 1
+            if self.freeze_time:
+                return
+            else:
+                players[0].explode()
+    def player_respawn(self):
+        pass
     def restart_or_pause(self):
         if self.game_over:
             self.restart(skip_tutorial = True)
-        elif self.wave < 1:
-            self.skipped_tutorial = True
-            self.wave = 0
-            self.sprites = players[:]
-            self.new_wave()
         else:
             self.pause = not self.pause
             if SOUND:
@@ -1246,6 +1338,71 @@ class Level(object):
                 else:
                     pygame.mixer.unpause()
                     music.unpause()
+    def pick_random_pattern(self):
+        self.xpattern = random.randrange(4)
+        self.ypattern = random.randrange(4)
+    def random_position(self):
+        if random.randrange(5) == 0:
+            return (random.randrange(WIDTH), random.randrange(HEIGHT))
+        if self.xpattern == 0:
+            x = (random.expovariate(4) * [0.5, -0.5][random.randrange(2)] + 0.5) * WIDTH
+        elif self.xpattern == 1:
+            x = (1 / (1+random.expovariate(2)) * [0.5, -0.5][random.randrange(2)] + 0.5) * WIDTH
+        elif self.xpattern == 2:
+            x = random.expovariate(5) * WIDTH
+        elif self.xpattern == 3:
+            x = (1-random.expovariate(5)) * WIDTH
+
+        ypattern = random.randrange(4)
+        if self.ypattern == 0:
+            y = (random.expovariate(4) * [0.5, -0.5][random.randrange(2)] + 0.5) * HEIGHT
+        elif self.ypattern == 1:
+            y = (1 / (1+random.expovariate(2)) * [0.5, -0.5][random.randrange(2)] + 0.5) * HEIGHT
+        elif self.ypattern == 2:
+            y = random.expovariate(3) * HEIGHT
+        elif self.ypattern == 3:
+            y = (1-random.expovariate(3)) * HEIGHT
+
+        return (x, y)
+    RENEW_BG_SIZE = 16
+    def renew_bg_around(self, sprite):
+        x = sprite.x - self.RENEW_BG_SIZE / 2
+        y = sprite.y - self.RENEW_BG_SIZE / 2
+        w = h = self.RENEW_BG_SIZE
+        self.bg.blit(self.new_bg, (x,y), (x,y,w,h))
+    def enemy_destroyed(self, enemy):
+        pass
+    def reset_laziness_delay(self):
+        pass
+
+class TestLevel(Level):
+    def __init__(self):
+        Level.__init__(self)
+    def restart(self, skip_tutorial = False):
+        self.bg = pygame.Surface((WIDTH, HEIGHT))
+        self.new_bg = images['living_grass']
+        self.bg.blit(images['grass'], (0,0))
+        self.skipped_tutorial = skip_tutorial
+        if skip_tutorial:
+            self.wave = 0
+            music.play()
+        else:
+            self.wave = -5
+            music.play('sparrow')
+        self.music_bars = -1
+        bar_start.set(False)
+        even_bar_start.set(False)
+        self.music_beats = -1
+        beat_start.set(False)
+        self.wave_message_delay = 0
+        self.delayed_captions = {}
+        self.wave_frames = 0
+        self.min_wave_time = 0
+        self.few_enemies = 0
+        self.few_enemies_delay = seconds(grace_time(10))
+        self.max_laziness_delay = seconds(grace_time(20))
+        self.laziness_delay = self.max_laziness_delay
+        self.cat_score = {}
     def spawn_cats(self, n):
         for i in xrange(n):
             wisp = Wisp(Cat)
@@ -1255,6 +1412,8 @@ class Level(object):
         self.cat_score[self.wave] = 1000
     def keep_cat_score(self):
         self.cat_score[self.wave] = self.cat_score[self.wave - 1]
+    def player_respawn(self):
+        self.reset_all_cat_scores()
     def reset_all_cat_scores(self):
         for k in self.cat_score.keys():
             self.cat_score[k] = 1000
@@ -1388,21 +1547,8 @@ class Level(object):
             self.sprites += [ProtoSphereoid() for n in xrange(enemies(2))]
             self.spawn_cats(2)
         self.reset_laziness_delay()
-    def start_frame(self):
-        new_bars = int(music.bars())
-        self.bar_start = (new_bars != self.music_bars)
-        self.even_bar_start = (new_bars != self.music_bars and new_bars % 2 == 0)
-        self.music_bars = new_bars
-        new_beats = int(music.beats())
-        self.beat_start = (new_beats != self.music_beats)
-        self.music_beats = new_beats
     def update(self):
-        if self.freeze_time:
-            self.freeze_time -= 1
-            if self.freeze_time:
-                return
-            else:
-                players[0].explode()
+        Level.update(self)
         if self.laziness_delay:
             self.laziness_delay -= 1
         if self.wave_message_delay:
@@ -1434,57 +1580,99 @@ class Level(object):
 
             if len(mandatory_pickups) == 0:
                 if self.laziness_delay <= 0:
-                    if self.bar_start:
+                    if bar_start():
                         level.new_wave()
                 if total_enemies == 0:
-                    if self.bar_start:
+                    if bar_start():
                         level.new_wave()
                 elif self.few_enemies and total_enemies <= self.few_enemies:
                     if self.few_enemies_delay:
                         self.few_enemies_delay -= 1
-                    elif self.bar_start:
+                    elif bar_start():
                         level.new_wave()
 
-    def cull_sprites(self):
-        self.sprites = [s for s in self.sprites if not s.remove]
-        self.captions = [s for s in self.captions if not s.remove]
-    def pick_random_pattern(self):
-        self.xpattern = random.randrange(4)
-        self.ypattern = random.randrange(4)
-    def random_position(self):
-        if random.randrange(5) == 0:
-            return (random.randrange(WIDTH), random.randrange(HEIGHT))
-        if self.xpattern == 0:
-            x = (random.expovariate(4) * [0.5, -0.5][random.randrange(2)] + 0.5) * WIDTH
-        elif self.xpattern == 1:
-            x = (1 / (1+random.expovariate(2)) * [0.5, -0.5][random.randrange(2)] + 0.5) * WIDTH
-        elif self.xpattern == 2:
-            x = random.expovariate(5) * WIDTH
-        elif self.xpattern == 3:
-            x = (1-random.expovariate(5)) * WIDTH
+    def restart_or_pause(self):
+        if self.game_over:
+            self.restart(skip_tutorial = True)
+        elif self.wave < 1:
+            self.skipped_tutorial = True
+            self.wave = 0
+            self.sprites = players[:]
+            self.new_wave()
+        else:
+            self.pause = not self.pause
+            if SOUND:
+                if self.pause:
+                    pygame.mixer.pause()
+                    music.pause()
+                else:
+                    pygame.mixer.unpause()
+                    music.unpause()
 
-        ypattern = random.randrange(4)
-        if self.ypattern == 0:
-            y = (random.expovariate(4) * [0.5, -0.5][random.randrange(2)] + 0.5) * HEIGHT
-        elif self.ypattern == 1:
-            y = (1 / (1+random.expovariate(2)) * [0.5, -0.5][random.randrange(2)] + 0.5) * HEIGHT
-        elif self.ypattern == 2:
-            y = random.expovariate(3) * HEIGHT
-        elif self.ypattern == 3:
-            y = (1-random.expovariate(3)) * HEIGHT
+class DynamicDifficultyLevel(Level):
+    def __init__(self):
+        Level.__init__(self)
+        self.new_bg = images['living_grass']
+    def restart(self, skip_tutorial = False):
+        Level.restart(self)
+        self.bg.blit(images['grass'], (0,0))
+        self.sample_interval = seconds(8)
+        self.target_enemy_lifespan = seconds(8)
+        self.sample_time = 0
+        self.defeated_enemies = 0
+        self.defeated_enemy_life_time = 0
+        self.average_enemy_lifespan = 0
+        self.fairies_per_wave = 1
+        music.play()
+        for player in players:
+            player.reset()
+        self.wave = 0
+        self.new_wave()
+    def new_wave(self):
+        self.wave += 1
+        self.target_enemy_lifespan += seconds(0.1)
+        msg = u"avgl: %0.1f; target: %0.1f; n: %d" % (self.average_enemy_lifespan,
+                                                      self.target_enemy_lifespan,
+                                                      self.fairies_per_wave)
+        print msg
+        caption = Caption(msg)
+        caption.center_at(HEIGHT - 200)
+        caption.displace_x = WIDTH * [-1, 1][self.wave % 2]
+        caption.spawn()
+        self.pick_random_pattern()
+        self.sprites += [Wisp(ProtoGrunt) for s in xrange(enemies(self.fairies_per_wave))]
+        self.sample_time = self.sample_interval
+    def perform_difficulty_sampling(self):
+        remaining_enemies = [s for s in self.sprites if isinstance(s, Enemy)]
+        enemies = self.defeated_enemies + len(remaining_enemies)
+        lifespan = self.defeated_enemy_life_time + sum([self.age(e.birthtime) for e in remaining_enemies])
 
-        return (x, y)
+        self.average_enemy_lifespan = float(lifespan) / enemies
+        diff_factor = float(self.average_enemy_lifespan) / self.target_enemy_lifespan
+        self.fairies_per_wave = round(self.fairies_per_wave / diff_factor) + 1
+        self.defeated_enemies = 0
+        self.defeated_enemy_life_time = 0
+        self.new_wave()
+    def update(self):
+        Level.update(self)
+        if not self.game_over:
+            if self.sample_time:
+                self.sample_time -= 1
+            else:
+                self.perform_difficulty_sampling()
+            enemies = [e for e in self.sprites if isinstance(e, Enemy)]
+            if len(enemies) == 0:
+                self.perform_difficulty_sampling()
 
-players = [Player()]
-level = Level()
-music = Music()
-level.restart()
-#level.sprites += players
+    def age(self, birth):
+        return min(self.frames - birth, self.target_enemy_lifespan * 2)
+    def enemy_destroyed(self, enemy):
+        self.defeated_enemies += 1
+        self.defeated_enemy_life_time += self.age(enemy.birthtime)
 
 ######################################################################
 
 def update():
-    level.start_frame()
     if not players[0].remove:
         if not level.freeze_time:
             if move_up() and not move_down():
@@ -1509,8 +1697,8 @@ def update():
         if (x or y) and not level.freeze_time:
             players[0].fire(x, y)
 
-        t = pygame.time.get_ticks()
-        if not len([b for b in [fire_up, fire_down, fire_left, fire_right] if t - b.last_push_time > 350]):
+        t = level.frames
+        if not len([b for b in [fire_up, fire_down, fire_left, fire_right] if t - b.last_push_frame > seconds(0.35)]):
             players[0].bomb()
 
     level.update()
@@ -1559,7 +1747,7 @@ def update():
     for player in [p for p in players if p.machines_remaining]:
         if player.respawn_delay:
             if player.respawn_delay == 1:
-                if level.bar_start:
+                if bar_start():
                     player.respawn_delay = 0
                     player.respawn()
             else:
@@ -1599,7 +1787,7 @@ def redraw():
         w = x1-x0
         h = y1-y0
         screen.blit(images['death'], (x0,y0), (x0, y0, w, h))
-    if level.game_over or level.pause:
+    if level.game_over or level.pause or demo.freeze:
         screen.blit(images['dark'], (0,0))
     for caption in level.captions:
         caption.draw()
@@ -1648,12 +1836,31 @@ def redraw():
 
 ######################################################################
 
+random = random_module.Random()
+extra_random = random_module.Random()
+
+######################################################################
+
 running = True
 first_frame = True
 clock = pygame.time.Clock()
 
+demo = DemoRecorder(all_buttons)
+if len(sys.argv) > 1:
+    demo.play(sys.argv[1])
+else:
+    demo.record()
+
+music = Music()
+players = [Player()]
+#level = TestLevel()
+level = DynamicDifficultyLevel()
+level.restart()
+
 while running:
-    if not level.pause:
+    level.start_frame()
+    demo.advance_frame()
+    if not level.pause and not demo.freeze:
         update()
     redraw()
 
@@ -1663,47 +1870,50 @@ while running:
         first_frame = False
     else:
         for event in pygame.event.get():
+            if event.type == END_MUSIC_EVENT:
+                music.next()
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     running = False
                 elif event.key == pygame.K_RETURN and event.mod:
                     pygame.display.toggle_fullscreen()
-                elif keymap.has_key(event.key):
+            if not demo.playing and not demo.freeze:
+                if event.type == pygame.KEYDOWN:
+                    if keymap.has_key(event.key):
+                            keymap[event.key].set(True)
+                    elif keymap_select_map.has_key(event.key):
+                        keymap = keymap_select_map[event.key]
+                        print 'Magiskt keymapbyte till: %s' % keymap['name']
                         keymap[event.key].set(True)
-                elif keymap_select_map.has_key(event.key):
-                    keymap = keymap_select_map[event.key]
-                    print 'Magiskt keymapbyte till: %s' % keymap['name']
-                    keymap[event.key].set(True)
-                else:
-                    if reverse_keymap.has_key(event.key):
-                        name = reverse_keymap[event.key]
                     else:
-                        name = '%d' % event.key
-                    print 'Obunden tangent: %s' % name
-            elif event.type == pygame.KEYUP:
-                if keymap.has_key(event.key):
-                    keymap[event.key].set(False)
-            elif event.type == pygame.JOYBUTTONDOWN:
-                buttons = joysticks[event.joy].bindings['buttons']
-                if buttons.has_key(event.button):
-                    buttons[event.button].set(True)
-                else:
-                    print 'Obunden knapp %d på %s' % (event.button, joysticks[event.joy].name)
-            elif event.type == pygame.JOYBUTTONUP:
-                buttons = joysticks[event.joy].bindings['buttons']
-                if buttons.has_key(event.button):
-                    buttons[event.button].set(False)
-            elif event.type == pygame.JOYAXISMOTION:
-                axes = joysticks[event.joy].bindings['axes']
-                if axes.has_key(event.axis):
-                    axes[event.axis].set(event.value)
-                else:
-                    print 'Obunden axel %d på %s' % (event.axis, joysticks[event.joy].name)
-            elif event.type == END_MUSIC_EVENT:
-                music.next()
-    if start.get_triggered():
-        level.restart_or_pause()
+                        if reverse_keymap.has_key(event.key):
+                            name = reverse_keymap[event.key]
+                        else:
+                            name = '%d' % event.key
+                        print 'Obunden tangent: %s' % name
+                elif event.type == pygame.KEYUP:
+                    if keymap.has_key(event.key):
+                        keymap[event.key].set(False)
+                elif event.type == pygame.JOYBUTTONDOWN:
+                    buttons = joysticks[event.joy].bindings['buttons']
+                    if buttons.has_key(event.button):
+                        buttons[event.button].set(True)
+                    else:
+                        print 'Obunden knapp %d på %s' % (event.button, joysticks[event.joy].name)
+                elif event.type == pygame.JOYBUTTONUP:
+                    buttons = joysticks[event.joy].bindings['buttons']
+                    if buttons.has_key(event.button):
+                        buttons[event.button].set(False)
+                elif event.type == pygame.JOYAXISMOTION:
+                    axes = joysticks[event.joy].bindings['axes']
+                    if axes.has_key(event.axis):
+                        axes[event.axis].set(event.value)
+                    else:
+                        print 'Obunden axel %d på %s' % (event.axis, joysticks[event.joy].name)
+        if start.get_triggered():
+            level.restart_or_pause()
 
     clock.tick(TARGET_FPS)
 
+demo.stop()
 pygame.quit()
