@@ -52,6 +52,12 @@ def hertz(hz):
 def pixels_per_second(pixels):
     return float(pixels) / TARGET_FPS
 
+def number(n, singular, plural):
+    if n == 1:
+        return u'%d %s' % (n, singular)
+    else:
+        return u'%d %s' % (n, plural)
+
 ######################################################################
 
 if MIXER_PRE_INIT:
@@ -107,6 +113,19 @@ def make_font(name, size):
 
 tiny_font, small_font, font, caption_font = (make_font('Titania-Regular', size) for size in (20, 32, 36, 48))
 
+def message(text):
+    print text
+    image = font.render(text, True, (255,255,255))
+    shadow = font.render(text, True, (0,0,0))
+    x = WIDTH / 2 - image.get_width() / 2
+    y = HEIGHT / 2 - image.get_height() / 2
+    screen.fill((32,32,32))
+    screen.blit(shadow, (x + 3, y + 3))
+    screen.blit(image, (x, y))
+    pygame.display.update()
+
+message(u'Vänta ...')
+
 ######################################################################
 
 class Button(object):
@@ -121,6 +140,10 @@ class Button(object):
         if state:
             self.last_push_frame = level.frames
             self.triggered = True
+    def set_triggered(self, state):
+        if state:
+            self.last_push_frame = level.frames
+        self.triggered = state
     def maybe_set(self, state):
         if state != self.state:
             self.set(state)
@@ -186,57 +209,54 @@ class Joystick(object):
             print 'Känner inte igen joystick: %s' % self.name
             joy.quit()
 
-joystick_maps = { 'HID 0b43:0003': { 'name': 'EMS Dualshooter',
-                                     'axes': { 0: move_x,
-                                               1: move_y,
-                                               5: fire_x,
-                                               2: fire_y },
-                                     'buttons': { 0: fire_up,
-                                                  16: fire_up,
-                                                  1: fire_right,
-                                                  17: fire_right,
-                                                  2: fire_down,
-                                                  18: fire_down,
-                                                  3: fire_left,
-                                                  19: fire_left,
-                                                  9: start,
-                                                  25: start,
-                                                  12: move_up,
-                                                  28: move_up,
-                                                  13: move_right,
-                                                  29: move_right,
-                                                  14: move_down,
-                                                  30: move_down,
-                                                  15: move_left,
-                                                  31: move_left } },
-                  'HID 6666:0667': { 'name': 'BOOM PSX+N64 converter',
-                                     'axes': { 0: move_x,
-                                               1: move_y,
-                                               2: fire_x,
-                                               3: fire_y },
-                                     'buttons': { 0: fire_up,
-                                                  1: fire_right,
-                                                  2: fire_down,
-                                                  3: fire_left,
-                                                  11: start,
-                                                  12: move_up,
-                                                  13: move_right,
-                                                  14: move_down,
-                                                  15: move_left } },
-                  '4 axis 16 button joystick': { 'name': 'Idiotiska windowsjoysticknamn... *mummel*',
-                                     'axes': { 0: move_x,
-                                               1: move_y,
-                                               2: fire_x,
-                                               3: fire_y },
-                                     'buttons': { 0: fire_up,
-                                                  1: fire_right,
-                                                  2: fire_down,
-                                                  3: fire_left,
-                                                  11: start,
-                                                  12: move_up,
-                                                  13: move_right,
-                                                  14: move_down,
-                                                  15: move_left } } }
+DUALSHOOTER_MAP = { 'name': 'EMS Dualshooter',
+                    'axes': { 0: move_x,
+                              1: move_y,
+                              5: fire_x,
+                              2: fire_y },
+                    'buttons': { 0: fire_up,
+                                 16: fire_up,
+                                 1: fire_right,
+                                 17: fire_right,
+                                 2: fire_down,
+                                 18: fire_down,
+                                 3: fire_left,
+                                 19: fire_left,
+                                 9: start,
+                                 25: start,
+                                 12: move_up,
+                                 28: move_up,
+                                 13: move_right,
+                                 29: move_right,
+                                 14: move_down,
+                                 30: move_down,
+                                 15: move_left,
+                                 31: move_left },
+                    'move_controls': u'Vänster spak',
+                    'move_controls': u'Höger spak',
+                    'start_controls': u'START' }
+BOOM_CONVERTER_MAP = { 'name': 'BOOM PSX+N64 converter',
+                       'axes': { 0: move_x,
+                                 1: move_y,
+                                 2: fire_x,
+                                 3: fire_y },
+                       'buttons': { 0: fire_up,
+                                    1: fire_right,
+                                    2: fire_down,
+                                    3: fire_left,
+                                    11: start,
+                                    12: move_up,
+                                    13: move_right,
+                                    14: move_down,
+                                    15: move_left },
+                       'move_controls': u'Vänster spak',
+                       'move_controls': u'Höger spak',
+                       'start_controls': u'START' }
+
+joystick_maps = { 'HID 0b43:0003': DUALSHOOTER_MAP,
+                  'HID 6666:0667': BOOM_CONVERTER_MAP, }
+
+windows_joystick_map = DUALSHOOTER_MAP
 
 joysticks = [Joystick(pygame.joystick.Joystick(i)) for i in xrange(pygame.joystick.get_count())]
 
@@ -257,17 +277,18 @@ keymap_alts = [{ 'name': 'MAME-bindingar för Robotron',
                  pygame.K_1: start,
                  pygame.K_p: start,
                  pygame.K_PAUSE: start,
-                 'fire_keys': 'I J K L',
-                 'move_keys': 'E S D F' },
+                 'fire_controls': 'I J K L',
+                 'move_controls': 'E S D F',
+                 'start_controls': '1' },
                { 'name': 'MAME-bindningar för spelare 1 och 2',
                  pygame.K_KP8: move_up,
                  pygame.K_KP2: move_down,
                  pygame.K_KP4: move_left,
                  pygame.K_KP6: move_right,
-                 pygame.K_UP: move_up,
-                 pygame.K_DOWN: move_down,
-                 pygame.K_LEFT: move_left,
-                 pygame.K_RIGHT: move_right,
+                 # pygame.K_UP: move_up,
+                 # pygame.K_DOWN: move_down,
+                 # pygame.K_LEFT: move_left,
+                 # pygame.K_RIGHT: move_right,
                  pygame.K_r: fire_up,
                  pygame.K_f: fire_down,
                  pygame.K_d: fire_left,
@@ -275,8 +296,9 @@ keymap_alts = [{ 'name': 'MAME-bindingar för Robotron',
                  pygame.K_1: start,
                  pygame.K_p: start,
                  pygame.K_PAUSE: start,
-                 'fire_keys': 'R D F G',
-                 'move_keys': 'piltangenterna' },
+                 'fire_controls': 'Vänster spak',
+                 'move_controls': 'Höger spak',
+                 'start_controls': 'START' },
                { 'name': 'Egilbindningar',
                  pygame.K_i: move_up,
                  pygame.K_o: move_down,
@@ -289,10 +311,12 @@ keymap_alts = [{ 'name': 'MAME-bindingar för Robotron',
                  pygame.K_1: start,
                  pygame.K_p: start,
                  pygame.K_PAUSE: start,
-                 'fire_keys': 'A W E F',
-                 'move_keys': u'J I O Ö' },]
+                 'fire_controls': 'A W E F',
+                 'move_controls': u'J I O Ö',
+                 'start_controls': '1' },]
 
 keymap = keymap_alts[0]
+last_used_map = keymap
 
 keymap_select_map = {}
 
@@ -325,6 +349,7 @@ class DemoRecorder(object):
         self.freeze = False
         self.buttons = buttons
     def play(self, filename):
+        message('Laddar ' + filename)
         self.playing = True
         f = gzip.open(filename, 'r')
         source = pickle.load(f)
@@ -341,11 +366,13 @@ class DemoRecorder(object):
         self.frames = [random.getstate()]
     def stop(self):
         if self.recording:
+            message('Sparar ' + self.filename)
             f = gzip.open(self.filename, 'w')
             pickle.dump(source_code(), f)
             pickle.dump(self.frames, f)
             f.close()
             self.recording = False
+            print "Sparade " + self.filename
         if self.playing:
             self.playing = False
             music.stop()
@@ -361,6 +388,7 @@ class DemoRecorder(object):
                 state = self.frames[self.frame]
                 for s, b in zip(state, self.buttons):
                     b.set(s[0])
+                    b.set_triggered(s[1])
                 self.frame += 1
 
 ######################################################################
@@ -742,8 +770,8 @@ class Player(Sprite):
             bullet.move(self)
             bullet.delta_x = dx * self.BULLET_SPEED + (random.random()-0.5)
             bullet.delta_y = dy * self.BULLET_SPEED + (random.random()-0.5)
-            bullet.x += bullet.delta_x
-            bullet.y += bullet.delta_y
+            # bullet.x += bullet.delta_x
+            # bullet.y += bullet.delta_y
             bullet.owner = self
             if dy == 0:
                 bullet.frame = 0
@@ -796,7 +824,8 @@ class Player(Sprite):
         self.respawn_delay = seconds(1)
         if self.machines_remaining == 0:
             music.stop()
-            level.game_over = True
+            level.set_game_over()
+        level.player_destroyed(self)
     def bomb_delay_fraction(self):
         return float(self.bomb_delay) / self.BOMB_DELAY
     def draw(self):
@@ -919,6 +948,7 @@ class Enemy(Sprite):
         self.hittable = True
         self.crashable = True
         self.destructible = True
+        self.may_leave_screen = False
     def explode(self, bullet):
         self.remove = True
         level.enemy_destroyed
@@ -934,7 +964,7 @@ class Enemy(Sprite):
         level.renew_bg_around(self)
         play_sound('snare')
         level.reset_laziness_delay()
-        level.enemy_destroyed(self)
+        level.enemy_destroyed(self, bullet)
 class Fairy(object):
     PHASE_CYCLE = 10
     def setup_fairy_animation(self):
@@ -987,8 +1017,11 @@ class ProtoGrunt(Enemy, Fairy):
             self.x += x * self.idle_speed
             self.facing_right = x > 0
             self.y += math.sin(self.direction) * self.idle_speed
-            if self.clamp_position():
-                self.direction += math.pi / 2
+            if self.may_leave_screen:
+                self.cull()
+            else:
+                if self.clamp_position():
+                    self.direction += math.pi / 2
         self.update_fairy_animation()
 class ProtoHulk(ProtoGrunt):
     def initialize(self):
@@ -1300,6 +1333,7 @@ class Level(object):
         self.sprites = []
         self.captions = []
         self.frames = -1
+        self.start_time_ticks = pygame.time.get_ticks()
         self.freeze_time = 0
         self.game_over = False
         self.game_over_time = 0
@@ -1370,10 +1404,17 @@ class Level(object):
         y = sprite.y - self.RENEW_BG_SIZE / 2
         w = h = self.RENEW_BG_SIZE
         self.bg.blit(self.new_bg, (x,y), (x,y,w,h))
-    def enemy_destroyed(self, enemy):
+    def enemy_destroyed(self, enemy, bullet):
+        pass
+    def player_destroyed(self, player):
         pass
     def reset_laziness_delay(self):
         pass
+    def set_game_over(self):
+        self.stop_time_ticks = pygame.time.get_ticks()
+        for n, player in enumerate(players):
+            print 'Spelare %d: %d poäng' % (n + 1, player.score)
+        self.game_over = True
 
 class TestLevel(Level):
     def __init__(self):
@@ -1472,7 +1513,7 @@ class TestLevel(Level):
             wisp.hittable = False
             wisp.spawn()
             for s in [1, 16, 23]:
-                self.delayed_captions[seconds(s)] = [Caption(u"Använd %s för att zappa" % keymap['fire_keys'])]
+                self.delayed_captions[seconds(s)] = [Caption(u"Använd %s för att zappa" % last_used_map['fire_controls'])]
             caption = Caption(u"Glöm inte att du kan zappa diagonalt!")
             self.delayed_captions[seconds(7)] = [caption]
             caption = Caption(u"Zappa den farliga älvan!")
@@ -1559,7 +1600,7 @@ class TestLevel(Level):
                 #play_sound('gong')
                 pass
             if self.game_over_time == seconds(3.5):
-                caption = Caption(u"Tryck START för att börja om")
+                caption = Caption(u"Tryck %s för att börja om" % last_used_map['start_controls'])
                 caption.life = seconds(15)
                 caption.spawn()
         self.wave_frames += 1
@@ -1571,7 +1612,7 @@ class TestLevel(Level):
 
         if self.wave == -4:
             if (self.wave_frames - seconds(4)) % seconds(7) == 0:
-                caption = Caption(u"Använd %s för att gå omkring" % keymap['move_keys'])
+                caption = Caption(u"Använd %s för att gå omkring" % last_used_map['move_controls'])
                 caption.spawn()
 
         if self.wave_frames > self.min_wave_time:
@@ -1610,6 +1651,7 @@ class TestLevel(Level):
                     music.unpause()
 
 class DynamicDifficultyLevel(Level):
+    THRESHOLD_WAVE_DISTANCE = 13
     def __init__(self):
         Level.__init__(self)
         self.new_bg = images['living_grass']
@@ -1620,6 +1662,7 @@ class DynamicDifficultyLevel(Level):
         self.target_enemy_lifespan = seconds(8)
         self.sample_time = 0
         self.defeated_enemies = 0
+        self.total_defeated_enemies = 0
         self.defeated_enemy_life_time = 0
         self.average_enemy_lifespan = 0
         self.fairies_per_wave = 1
@@ -1627,13 +1670,21 @@ class DynamicDifficultyLevel(Level):
         for player in players:
             player.reset()
         self.wave = 0
+        self.next_threshold_wave = 13
         self.new_wave()
+        self.game_over_time = 0
     def new_wave(self):
+        if self.threshold_wave():
+            self.next_threshold_wave += 17
+            self.fairies_per_wave = 1
+
         self.wave += 1
         self.target_enemy_lifespan += seconds(0.1)
-        msg = u"avgl: %0.1f; target: %0.1f; n: %d" % (self.average_enemy_lifespan,
-                                                      self.target_enemy_lifespan,
-                                                      self.fairies_per_wave)
+        # msg = u"avgl: %0.1f; target: %0.1f; n: %d" % (self.average_enemy_lifespan,
+        #                                               self.target_enemy_lifespan,
+        #                                               self.fairies_per_wave)
+        fairies_msg = number (self.fairies_per_wave, u'ny älva', u'nya älvor')
+        msg = u"Våg %d/%d; %s" % (self.wave, self.next_threshold_wave, fairies_msg)
         print msg
         caption = Caption(msg)
         caption.center_at(HEIGHT - 200)
@@ -1653,22 +1704,58 @@ class DynamicDifficultyLevel(Level):
         self.defeated_enemies = 0
         self.defeated_enemy_life_time = 0
         self.new_wave()
+    def threshold_wave(self):
+        return self.wave == self.next_threshold_wave
     def update(self):
         Level.update(self)
         if not self.game_over:
-            if self.sample_time:
-                self.sample_time -= 1
-            else:
-                self.perform_difficulty_sampling()
+            if not players[0].remove:
+                if not self.threshold_wave():
+                    if self.sample_time:
+                        self.sample_time -= 1
+                    else:
+                        self.perform_difficulty_sampling()
             enemies = [e for e in self.sprites if isinstance(e, Enemy)]
             if len(enemies) == 0:
                 self.perform_difficulty_sampling()
+        else:
+            self.game_over_time += 1
+            if self.game_over_time == seconds(8):
+                caption = Caption(u"Tryck %s för att börja om" % last_used_map['start_controls'])
+                caption.center_at(HEIGHT / 2 - 50)
+                caption.life = seconds(15)
+                caption.spawn()
 
     def age(self, birth):
         return min(self.frames - birth, self.target_enemy_lifespan * 2)
-    def enemy_destroyed(self, enemy):
+    def enemy_destroyed(self, enemy, bullet):
+        self.total_defeated_enemies += 1
         self.defeated_enemies += 1
-        self.defeated_enemy_life_time += self.age(enemy.birthtime)
+        if isinstance(bullet, BombBlast):
+            age = self.target_enemy_lifespan * 2
+        else:
+            age = self.age(enemy.birthtime)
+        self.defeated_enemy_life_time += age
+    def player_destroyed(self, player):
+        self.sample_time = self.sample_interval
+        enemies = [s for s in level.sprites if isinstance(s, Enemy) and s.destructible]
+        for e in enemies:
+            e.may_leave_screen = True
+    def set_game_over(self):
+        Level.set_game_over(self)
+        game_time = (self.stop_time_ticks - self.start_time_ticks) / 1000.0
+        msg = u'Slut vid våg %d, efter %s och %s' % (self.wave,
+                                                     number(round(game_time), 'sekund', 'sekunder'),
+                                                     number(self.total_defeated_enemies, u'älva', u'älvor'))
+        print msg
+        expected_frames = round(game_time * TARGET_FPS)
+        actual_frames = self.frames
+        if expected_frames > actual_frames:
+            print u'Har ritat %d bildrutor, men borde ha hunnit med %d.' % (actual_frames, expected_frames)
+        caption = Caption(msg, small_font)
+        caption.center_at(HEIGHT / 2 + 50)
+        caption.life = seconds(60)
+        caption.spawn()
 
 ######################################################################
 
@@ -1864,6 +1951,9 @@ while running:
         update()
     redraw()
 
+    for button in all_buttons:
+        button.get_triggered()
+
     if first_frame:
         for event in pygame.event.get():
             pass
@@ -1877,14 +1967,16 @@ while running:
                     running = False
                 elif event.key == pygame.K_RETURN and event.mod:
                     pygame.display.toggle_fullscreen()
-            if not demo.playing and not demo.freeze:
+            if running and not demo.playing and not demo.freeze:
                 if event.type == pygame.KEYDOWN:
                     if keymap.has_key(event.key):
-                            keymap[event.key].set(True)
+                        keymap[event.key].set(True)
+                        last_used_map = keymap
                     elif keymap_select_map.has_key(event.key):
                         keymap = keymap_select_map[event.key]
                         print 'Magiskt keymapbyte till: %s' % keymap['name']
                         keymap[event.key].set(True)
+                        last_used_map = keymap
                     else:
                         if reverse_keymap.has_key(event.key):
                             name = reverse_keymap[event.key]
@@ -1894,20 +1986,24 @@ while running:
                 elif event.type == pygame.KEYUP:
                     if keymap.has_key(event.key):
                         keymap[event.key].set(False)
+                        last_used_map = keymap
                 elif event.type == pygame.JOYBUTTONDOWN:
                     buttons = joysticks[event.joy].bindings['buttons']
                     if buttons.has_key(event.button):
                         buttons[event.button].set(True)
+                        last_used_map = joysticks[event.joy].bindings
                     else:
                         print 'Obunden knapp %d på %s' % (event.button, joysticks[event.joy].name)
                 elif event.type == pygame.JOYBUTTONUP:
                     buttons = joysticks[event.joy].bindings['buttons']
                     if buttons.has_key(event.button):
                         buttons[event.button].set(False)
+                        last_used_map = joysticks[event.joy].bindings
                 elif event.type == pygame.JOYAXISMOTION:
                     axes = joysticks[event.joy].bindings['axes']
                     if axes.has_key(event.axis):
                         axes[event.axis].set(event.value)
+                        last_used_map = joysticks[event.joy].bindings
                     else:
                         print 'Obunden axel %d på %s' % (event.axis, joysticks[event.joy].name)
         if start.get_triggered():
