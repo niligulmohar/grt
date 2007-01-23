@@ -60,7 +60,7 @@ def number(n, singular, plural):
 
 ######################################################################
 
-if MIXER_PRE_INIT:
+if MIXER_PRE_INIT and sys.platform != 'win32':
     SAMPLE_RATE = 44100
     BUFFER_SIZE = 1024
     pygame.mixer.pre_init(SAMPLE_RATE, 0, 1, BUFFER_SIZE)
@@ -197,6 +197,8 @@ class Joystick(object):
         self.joystick = joy
         self.name = joy.get_name()
         joy.init()
+        if sys.platform == 'win32':
+            self.bindings = windows_joystick_map 
         if joystick_maps.has_key(self.name):
             self.bindings = joystick_maps[self.name]
         elif joy.get_numaxes() < 2:
@@ -1696,10 +1698,13 @@ class DynamicDifficultyLevel(Level):
     def perform_difficulty_sampling(self):
         remaining_enemies = [s for s in self.sprites if isinstance(s, Enemy)]
         enemies = self.defeated_enemies + len(remaining_enemies)
-        lifespan = self.defeated_enemy_life_time + sum([self.age(e.birthtime) for e in remaining_enemies])
+        if enemies > 0:
+            lifespan = self.defeated_enemy_life_time + sum([self.age(e.birthtime) for e in remaining_enemies])
 
-        self.average_enemy_lifespan = float(lifespan) / enemies
-        diff_factor = float(self.average_enemy_lifespan) / self.target_enemy_lifespan
+            self.average_enemy_lifespan = float(lifespan) / enemies
+            diff_factor = float(self.average_enemy_lifespan) / self.target_enemy_lifespan
+        else:
+            diff_factor = 1
         self.fairies_per_wave = round(self.fairies_per_wave / diff_factor) + 1
         self.defeated_enemies = 0
         self.defeated_enemy_life_time = 0
@@ -2007,9 +2012,12 @@ while running:
                     else:
                         print 'Obunden axel %d på %s' % (event.axis, joysticks[event.joy].name)
         if start.get_triggered():
+            for button in all_buttons:
+                button.reset()
             level.restart_or_pause()
 
     clock.tick(TARGET_FPS)
 
+music.stop()
 demo.stop()
 pygame.quit()
