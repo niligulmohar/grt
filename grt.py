@@ -12,7 +12,7 @@ START_FULLSCREEN_LARGE_SCREEN = False
 START_FULLSCREEN_SMALL_SCREEN = True
 HWSURFACE = True
 SOUND = True
-MIXER_PRE_INIT = True
+MIXER_PRE_INIT = False
 WRONG_SAMPLE_RATE_FACTOR = 1
 #WRONG_SAMPLE_RATE_FACTOR = 48000/44100.0
 
@@ -20,6 +20,7 @@ WRONG_SAMPLE_RATE_FACTOR = 1
 
 ENEMY_AMOUNT_SCALE = 1.0
 GRACE_TIME_SCALE = 1.0
+USE_BOMBS = False
 
 def enemies(amt):
     return int(round(amt * ENEMY_AMOUNT_SCALE))
@@ -63,7 +64,7 @@ def number(n, singular, plural):
 if MIXER_PRE_INIT and sys.platform != 'win32':
     SAMPLE_RATE = 44100
     BUFFER_SIZE = 1024
-    pygame.mixer.pre_init(SAMPLE_RATE, 0, 1, BUFFER_SIZE)
+    print pygame.mixer.pre_init(SAMPLE_RATE, 0, 1, BUFFER_SIZE)
 else:
     SAMPLE_RATE = 22050
     BUFFER_SIZE = 1024
@@ -579,6 +580,8 @@ class Sprite(object):
         return (self.x - (ref.x + offset[0])) ** 2 + (self.y - (ref.y + offset[1])) ** 2
     def distance(self, ref, offset = (0, 0)):
         return math.sqrt(self.square_distance(ref, offset))
+    def near(self, other):
+        return False
     def vector_to(self, ref, offset = (0, 0)):
         x = (ref.x + offset[0]) - self.x
         y = (ref.y + offset[1]) - self.y
@@ -994,12 +997,14 @@ class ProtoGrunt(Enemy, Fairy):
         self.setup_fairy_animation()
     def set_follow_delay(self):
         self.follow_delay = seconds(random.uniform(0.5, 1.5))
+    def near(self, player):
+        return self.square_distance(player) < self.FAST_DISTANCE
     def update(self):
         player = self.nearest_player()
         if self.follow_delay:
             self.follow_delay -= 1
         if player and not self.follow_delay:
-            if self.square_distance(player) < self.FAST_DISTANCE:
+            if self.near(player):
                 dx, dy = self.direction_to(player)
                 speed = self.FAST_SPEED
             else:
@@ -1744,8 +1749,14 @@ class DynamicDifficultyLevel(Level):
     def player_destroyed(self, player):
         self.sample_time = self.sample_interval
         enemies = [s for s in level.sprites if isinstance(s, Enemy) and s.destructible]
+        print u'%s på skärmen' % number(len(enemies), 'fiende', 'fiender')
+        near_enemies = 0
         for e in enemies:
             e.may_leave_screen = True
+            if e.near(player):
+                near_enemies += 1
+        print u'%d i spelarens omedelbara närhet' % near_enemies
+
     def set_game_over(self):
         Level.set_game_over(self)
         game_time = (self.stop_time_ticks - self.start_time_ticks) / 1000.0
@@ -1790,8 +1801,9 @@ def update():
             players[0].fire(x, y)
 
         t = level.frames
-        if not len([b for b in [fire_up, fire_down, fire_left, fire_right] if t - b.last_push_frame > seconds(0.35)]):
-            players[0].bomb()
+        if USE_BOMBS:
+            if not len([b for b in [fire_up, fire_down, fire_left, fire_right] if t - b.last_push_frame > seconds(0.35)]):
+                players[0].bomb()
 
     level.update()
 
@@ -1819,7 +1831,7 @@ def update():
     for hazard in hazards:
         for player in hittable_players:
             if player.touches(hazard):
-                if player.bombs >= 2 and not player.bomb_delay:
+                if USE_BOMBS and player.bombs >= 2 and not player.bomb_delay:
                     level.freeze_time = level.max_freeze_time
                     play_sound('blippiblipp', True)
                 else:
