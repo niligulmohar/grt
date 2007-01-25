@@ -13,8 +13,6 @@ START_FULLSCREEN_SMALL_SCREEN = True
 HWSURFACE = True
 SOUND = True
 MIXER_PRE_INIT = False
-WRONG_SAMPLE_RATE_FACTOR = 1
-#WRONG_SAMPLE_RATE_FACTOR = 48000/44100.0
 
 ######################################################################
 
@@ -61,14 +59,11 @@ def number(n, singular, plural):
 
 ######################################################################
 
-if MIXER_PRE_INIT and sys.platform != 'win32':
+if MIXER_PRE_INIT:
     SAMPLE_RATE = 44100
     BUFFER_SIZE = 1024
     print pygame.mixer.pre_init(SAMPLE_RATE, 0, 1, BUFFER_SIZE)
-else:
-    SAMPLE_RATE = 22050
-    BUFFER_SIZE = 1024
-EXPECTED_MUSIC_DELAY = BUFFER_SIZE * 1000.0 / SAMPLE_RATE * 2 / WRONG_SAMPLE_RATE_FACTOR
+
 #EXPECTED_MUSIC_DELAY = 0
 
 pygame.init()
@@ -125,7 +120,27 @@ def message(text):
     screen.blit(image, (x, y))
     pygame.display.update()
 
+######################################################################
+
 message(u'Vänta ...')
+
+if SOUND and not MIXER_PRE_INIT:
+    pygame.mixer.music.load(files['silence.ogg'])
+    starttime = pygame.time.get_ticks()
+    pygame.mixer.music.play(0)
+    pygame.mixer.music.set_endevent(pygame.USEREVENT)
+    playing = True
+    while playing:
+        for event in pygame.event.get():
+            if event.type == pygame.USEREVENT:
+                stoptime = pygame.time.get_ticks()
+                playing = False
+    #SAMPLE_RATE = 22050
+    BUFFER_SIZE = 1024
+    SAMPLE_RATE = 44100.0 / (stoptime - starttime) * 1000.0
+    print u'Uppmätt samplerate: %f Hz' % SAMPLE_RATE
+
+EXPECTED_MUSIC_DELAY = BUFFER_SIZE * 1000.0 / SAMPLE_RATE * 2
 
 ######################################################################
 
@@ -402,7 +417,7 @@ image_names = ['grass',
                'death',
                'nili_gulmohar',
                'player',
-               'bullet',
+               'bullet2',
                'ball',
                'spark',
                'bigspark',
@@ -472,7 +487,7 @@ class Music(object):
             pygame.mixer.music.play(0)
             pygame.mixer.music.set_endevent(END_MUSIC_EVENT)
         def bars(self, ticks):
-            return (ticks - self.intro_delay_ticks - EXPECTED_MUSIC_DELAY) / 60000.0 * WRONG_SAMPLE_RATE_FACTOR * self.bpm / self.bpb - self.intro_delay_bars
+            return (ticks - self.intro_delay_ticks - EXPECTED_MUSIC_DELAY) / 60000.0 * self.bpm / self.bpb - self.intro_delay_bars
         def beats(self, ticks):
             return (ticks - self.intro_delay_ticks - EXPECTED_MUSIC_DELAY) / 60000.0 * self.bpm - (self.intro_delay_bars * self.bpb)
 
@@ -737,7 +752,8 @@ class Player(Sprite):
         while self.charge > 1:
             self.charge -= 1
             self.bombs += 1
-            play_sound('gong', True)
+            if USE_BOMBS:
+                play_sound('gong', True)
         self.subtract_charge(0.001 * ((self.bombs + 1) ** 1.1))
     def bomb(self):
         if self.bomb_delay <= 0 and self.bombs > 0:
@@ -775,20 +791,15 @@ class Player(Sprite):
             bullet.move(self)
             bullet.delta_x = dx * self.BULLET_SPEED + (random.random()-0.5)
             bullet.delta_y = dy * self.BULLET_SPEED + (random.random()-0.5)
-            # bullet.x += bullet.delta_x
-            # bullet.y += bullet.delta_y
+            bullet.x += bullet.delta_x
+            bullet.y += bullet.delta_y
             bullet.owner = self
-            if dy == 0:
-                bullet.frame = 0
-            elif dx == 0:
-                bullet.frame = 2
-            elif (dx > 0) == (dy > 0):
-                bullet.frame = 3
-            else:
-                bullet.frame = 1
+            bullet.frame_from_direction()
             bullet.spawn()
             self.fire_delay = self.FIRE_DELAY
             big_spark_spray(bullet, 2, self.BULLET_SPEED, 0.3)
+            bullet.x -= bullet.delta_x
+            bullet.y -= bullet.delta_y
     def add_score(self, score, bonus = True):
         bomb_bonus = max(1, (1 + self.bombs)/2.0)
         if bonus:
@@ -842,13 +853,15 @@ class Player(Sprite):
 
 class Bullet(Sprite):
     def initialize(self):
-        self.set_image(images['bullet'])
+        self.set_image(images['bullet2'])
         self.delta_x = 0
         self.delta_y = 0
         self.square_radius = 64 ** 2
         self.radius_coefficent = 0.5
         self.owner = None
         self.perish = True
+    def frame_from_direction(self):
+        self.frame = int(round(math.atan2(self.delta_y, self.delta_x) / math.pi * 8) % 16)
     def update(self):
         self.x += self.delta_x
         self.y += self.delta_y
