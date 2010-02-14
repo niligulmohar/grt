@@ -204,6 +204,7 @@ even_bar_start = Button()
 all_buttons = [move_up, move_down, move_left, move_right, fire_up, fire_down, fire_left, fire_right, start, beat_start, bar_start, even_bar_start]
 
 move_y = Axis(move_up, move_down)
+move_y_inverted = Axis(move_down, move_up)
 move_x = Axis(move_left, move_right)
 fire_y = Axis(fire_up, fire_down)
 fire_x = Axis(fire_left, fire_right)
@@ -214,7 +215,7 @@ class Joystick(object):
         self.name = joy.get_name()
         joy.init()
         if sys.platform == 'win32':
-            self.bindings = windows_joystick_map 
+            self.bindings = windows_joystick_map
         if joystick_maps.has_key(self.name):
             self.bindings = joystick_maps[self.name]
         elif joy.get_numaxes() < 2:
@@ -232,6 +233,7 @@ DUALSHOOTER_MAP = { 'name': 'EMS Dualshooter',
                               1: move_y,
                               5: fire_x,
                               2: fire_y },
+                    'hats': {},
                     'buttons': { 0: fire_up,
                                  16: fire_up,
                                  1: fire_right,
@@ -258,6 +260,7 @@ BOOM_CONVERTER_MAP = { 'name': 'BOOM PSX+N64 converter',
                                  1: move_y,
                                  2: fire_x,
                                  3: fire_y },
+                       'hats': {},
                        'buttons': { 0: fire_up,
                                     1: fire_right,
                                     2: fire_down,
@@ -271,8 +274,28 @@ BOOM_CONVERTER_MAP = { 'name': 'BOOM PSX+N64 converter',
                        'move_controls': u'Höger spak',
                        'start_controls': u'START' }
 
+XB360_MAP = { 'name': 'XBOX 360 Controller for Windows',
+              'axes': { 0: move_x,
+                        1: move_y,
+                        4: fire_x,
+                        3: fire_y },
+              'hats': { 0: [ move_x, move_y_inverted ] },
+              'buttons': { 0: fire_down,
+                           1: fire_right,
+                           2: fire_left,
+                           3: fire_up,
+                           11: start,
+                           12: move_up,
+                           13: move_right,
+                           14: move_down,
+                           15: move_left },
+              'move_controls': u'Vänster spak',
+              'move_controls': u'Höger spak',
+              'start_controls': u'START' }
+
 joystick_maps = { 'HID 0b43:0003': DUALSHOOTER_MAP,
-                  'HID 6666:0667': BOOM_CONVERTER_MAP, }
+                  'HID 6666:0667': BOOM_CONVERTER_MAP,
+                  'Controller (XBOX 360 For Windows)': XB360_MAP, }
 
 windows_joystick_map = DUALSHOOTER_MAP
 
@@ -2036,6 +2059,14 @@ while running:
                         last_used_map = joysticks[event.joy].bindings
                     else:
                         print 'Obunden axel %d på %s' % (event.axis, joysticks[event.joy].name)
+                elif event.type == pygame.JOYHATMOTION:
+                    hats = joysticks[event.joy].bindings['hats']
+                    if hats.has_key(event.hat):
+                        hats[event.hat][0].set(event.value[0])
+                        hats[event.hat][1].set(event.value[1])
+                        last_used_map = joysticks[event.joy].bindings
+                    else:
+                        print 'Obunden hatt %d på %s' % (event.hat, joysticks[event.joy].name)
         if start.get_triggered():
             for button in all_buttons:
                 button.reset()
