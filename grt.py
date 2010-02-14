@@ -4,7 +4,7 @@
 # Authors:
 #   Nicklas Lindgren <nili@lysator.liu.se>
 #
-# Copyright 2006 Nicklas Lindgren
+# Copyright 2006,2010 Nicklas Lindgren
 #
 # Released under GNU GPL, read the file 'COPYING' for more information
 
@@ -12,7 +12,7 @@ START_FULLSCREEN_LARGE_SCREEN = False
 START_FULLSCREEN_SMALL_SCREEN = True
 HWSURFACE = True
 SOUND = True
-MIXER_PRE_INIT = False
+MIXER_PRE_INIT = True
 
 ######################################################################
 
